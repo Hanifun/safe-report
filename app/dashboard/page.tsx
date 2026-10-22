@@ -43,7 +43,7 @@ export default function StudentDashboardPage() {
     if (isOk) {
       const current = AuthService.getUser();
       if (current) {
-        LaporanService.getByPelaporId(current.id).then((list) => {
+        LaporanService.getByPelaporId(current.id, current.nama).then((list) => {
           setLaporanList(list);
         });
       }

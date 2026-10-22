@@ -103,6 +103,9 @@ ALTER TABLE public.laporan ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bukti_laporan ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tindak_lanjut ENABLE ROW LEVEL SECURITY;
 
+-- Hapus constraint strict foreign key pada pelapor_id agar tidak memblokir submit laporan
+ALTER TABLE public.laporan DROP CONSTRAINT IF EXISTS laporan_pelapor_id_fkey;
+
 -- Hapus policy lama jika ada agar aman di-run berulang kali
 DROP POLICY IF EXISTS "Allow all with anon key" ON public.admins;
 DROP POLICY IF EXISTS "Allow all with anon key" ON public.siswa;

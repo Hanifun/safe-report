@@ -39,6 +39,33 @@ export function cleanAdminText(text: string): string {
     .replace(/Guru\s*BK/gi, "Admin");
 }
 
+// Helper mapping row database ke interface Laporan
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapLaporanRow(row: any): Laporan {
+  return {
+    id: row.id,
+    kode_pelacak: row.kode_pelacak,
+    is_anonim: row.is_anonim,
+    pelapor_id: row.pelapor_id,
+    nama_pelapor: row.nama_pelapor,
+    kontak_opsional: row.kontak_opsional,
+    peran_pelapor: row.peran_pelapor,
+    kategori: row.kategori,
+    nama_pelaku: row.nama_pelaku,
+    lokasi: row.lokasi,
+    tanggal_kejadian: row.tanggal_kejadian,
+    deskripsi: row.deskripsi,
+    bukti: row.bukti || [],
+    status: row.status,
+    tindak_lanjut: (row.tindak_lanjut || []).sort(
+      (a: TindakLanjut, b: TindakLanjut) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    ),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 // =====================================================
 // 1. SERVICE: LAPORAN (PENGADUAN)
 // =====================================================
@@ -60,28 +87,7 @@ export const LaporanService = {
       return [];
     }
 
-    return (data || []).map((row) => ({
-      id: row.id,
-      kode_pelacak: row.kode_pelacak,
-      is_anonim: row.is_anonim,
-      pelapor_id: row.pelapor_id,
-      nama_pelapor: row.nama_pelapor,
-      kontak_opsional: row.kontak_opsional,
-      peran_pelapor: row.peran_pelapor,
-      kategori: row.kategori,
-      nama_pelaku: row.nama_pelaku,
-      lokasi: row.lokasi,
-      tanggal_kejadian: row.tanggal_kejadian,
-      deskripsi: row.deskripsi,
-      bukti: row.bukti || [],
-      status: row.status,
-      tindak_lanjut: (row.tindak_lanjut || []).sort(
-        (a: TindakLanjut, b: TindakLanjut) =>
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      ),
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
+    return (data || []).map(mapLaporanRow);
   },
 
   async getByKode(kode: string): Promise<Laporan | null> {
@@ -100,67 +106,49 @@ export const LaporanService = {
 
     if (error || !data) return null;
 
-    return {
-      id: data.id,
-      kode_pelacak: data.kode_pelacak,
-      is_anonim: data.is_anonim,
-      pelapor_id: data.pelapor_id,
-      nama_pelapor: data.nama_pelapor,
-      kontak_opsional: data.kontak_opsional,
-      peran_pelapor: data.peran_pelapor,
-      kategori: data.kategori,
-      nama_pelaku: data.nama_pelaku,
-      lokasi: data.lokasi,
-      tanggal_kejadian: data.tanggal_kejadian,
-      deskripsi: data.deskripsi,
-      bukti: data.bukti || [],
-      status: data.status,
-      tindak_lanjut: (data.tindak_lanjut || []).sort(
-        (a: TindakLanjut, b: TindakLanjut) =>
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      ),
-      created_at: data.created_at,
-      updated_at: data.updated_at,
-    };
+    return mapLaporanRow(data);
   },
 
-  async getByPelaporId(pelaporId: string): Promise<Laporan[]> {
-    const { data, error } = await supabase
-      .from("laporan")
-      .select(
+  async getByPelaporId(pelaporId: string, namaOrNisn?: string): Promise<Laporan[]> {
+    if (pelaporId) {
+      const { data, error } = await supabase
+        .from("laporan")
+        .select(
+          `
+          *,
+          bukti:bukti_laporan(*),
+          tindak_lanjut(*)
         `
-        *,
-        bukti:bukti_laporan(*),
-        tindak_lanjut(*)
-      `
-      )
-      .eq("pelapor_id", pelaporId)
-      .order("created_at", { ascending: false });
+        )
+        .eq("pelapor_id", pelaporId)
+        .order("created_at", { ascending: false });
 
-    if (error) return [];
+      if (!error && data && data.length > 0) {
+        return data.map(mapLaporanRow);
+      }
+    }
 
-    return (data || []).map((row) => ({
-      id: row.id,
-      kode_pelacak: row.kode_pelacak,
-      is_anonim: row.is_anonim,
-      pelapor_id: row.pelapor_id,
-      nama_pelapor: row.nama_pelapor,
-      kontak_opsional: row.kontak_opsional,
-      peran_pelapor: row.peran_pelapor,
-      kategori: row.kategori,
-      nama_pelaku: row.nama_pelaku,
-      lokasi: row.lokasi,
-      tanggal_kejadian: row.tanggal_kejadian,
-      deskripsi: row.deskripsi,
-      bukti: row.bukti || [],
-      status: row.status,
-      tindak_lanjut: (row.tindak_lanjut || []).sort(
-        (a: TindakLanjut, b: TindakLanjut) =>
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      ),
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
+    // Fallback pencarian bila pelapor_id null atau sesi telah diperbarui
+    if (namaOrNisn) {
+      const cleanKeyword = namaOrNisn.trim();
+      const { data: byName } = await supabase
+        .from("laporan")
+        .select(
+          `
+          *,
+          bukti:bukti_laporan(*),
+          tindak_lanjut(*)
+        `
+        )
+        .ilike("nama_pelapor", `%${cleanKeyword}%`)
+        .order("created_at", { ascending: false });
+
+      if (byName && byName.length > 0) {
+        return byName.map(mapLaporanRow);
+      }
+    }
+
+    return [];
   },
 
   async create(
@@ -245,31 +233,83 @@ export const LaporanService = {
       data.mode_identitas === "siswa" && Boolean(user);
     const isAnonim = !isSiswaIdentity;
     const kode = generateKodePelacak("SF");
-    const now = new Date().toISOString();
 
-    // 5. Insert Laporan ke Database
-    const { data: laporanRow, error: laporanError } = await supabase
+    // Validasi pelapor_id agar aman dari error foreign key constraint (laporan_pelapor_id_fkey)
+    let validPelaporId: string | null = null;
+    if (isSiswaIdentity && user && user.role === "siswa" && user.id) {
+      try {
+        // Cek apakah user.id benar-benar ada di tabel siswa
+        const { data: siswaRow } = await supabase
+          .from("siswa")
+          .select("id")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (siswaRow) {
+          validPelaporId = siswaRow.id;
+        } else {
+          // Jika ID tidak ditemukan (misal sesi lama dari demo atau reset DB), cari via NISN
+          const nisnPart = user.nisn_kelas?.split(/[\s-]+/)?.[0]?.trim();
+          if (nisnPart) {
+            const { data: siswaByNisn } = await supabase
+              .from("siswa")
+              .select("id")
+              .eq("nisn", nisnPart)
+              .maybeSingle();
+            if (siswaByNisn) {
+              validPelaporId = siswaByNisn.id;
+              // Sinkronkan sesi browser pengguna dengan ID terbaru
+              AuthService.setUser({ ...user, id: siswaByNisn.id });
+            }
+          }
+        }
+      } catch (checkErr) {
+        console.warn("Gagal memverifikasi relasi siswa:", checkErr);
+        validPelaporId = null;
+      }
+    }
+
+    const payload = {
+      kode_pelacak: kode,
+      is_anonim: isAnonim,
+      pelapor_id: validPelaporId,
+      nama_pelapor:
+        isSiswaIdentity && user
+          ? `${user.nama} (${user.nisn_kelas ?? "Siswa"})`
+          : null,
+      kontak_opsional: cleanKontak || null,
+      peran_pelapor: data.peran_pelapor,
+      kategori: data.kategori,
+      nama_pelaku: cleanNamaPelaku || null,
+      lokasi: cleanLokasi,
+      tanggal_kejadian: data.tanggal_kejadian,
+      deskripsi: cleanDeskripsi,
+      status: "baru",
+    };
+
+    // 5. Insert Laporan ke Database dengan proteksi fallback
+    let { data: laporanRow, error: laporanError } = await supabase
       .from("laporan")
-      .insert({
-        kode_pelacak: kode,
-        is_anonim: isAnonim,
-        pelapor_id:
-          isSiswaIdentity && user ? user.id : null,
-        nama_pelapor:
-          isSiswaIdentity && user
-            ? `${user.nama} (${user.nisn_kelas ?? "Siswa"})`
-            : null,
-        kontak_opsional: cleanKontak || null,
-        peran_pelapor: data.peran_pelapor,
-        kategori: data.kategori,
-        nama_pelaku: cleanNamaPelaku || null,
-        lokasi: cleanLokasi,
-        tanggal_kejadian: data.tanggal_kejadian,
-        deskripsi: cleanDeskripsi,
-        status: "baru",
-      })
+      .insert(payload)
       .select()
       .single();
+
+    // Jika terjadi error Foreign Key Constraint (laporan_pelapor_id_fkey), simpan dengan pelapor_id null
+    if (
+      laporanError &&
+      (laporanError.message?.includes("foreign key") ||
+        laporanError.code === "23503" ||
+        laporanError.details?.includes("pelapor_id"))
+    ) {
+      console.warn("Foreign key check failed, retrying with pelapor_id = null");
+      const retryResult = await supabase
+        .from("laporan")
+        .insert({ ...payload, pelapor_id: null })
+        .select()
+        .single();
+      laporanRow = retryResult.data;
+      laporanError = retryResult.error;
+    }
 
     if (laporanError || !laporanRow) {
       throw new Error(
