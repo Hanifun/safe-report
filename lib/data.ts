@@ -1,14 +1,9 @@
-import {
-  createSessionSignature,
-  generateSecureToken,
-  RateLimiter,
-  sanitizeFileName,
-  sanitizeInput,
-  validateUploadedFile,
-  verifySessionSignature,
-} from "./security";
 // =====================================================
-// SafeReport — Data & Service Layer (Storage Lokal)
+// SafeReport — Data & Service Layer (Supabase Cloud)
+// =====================================================
+// Semua data kini disimpan di Supabase PostgreSQL.
+// Autentikasi admin & siswa menggunakan tabel custom.
+// File bukti disimpan di Supabase Storage.
 // =====================================================
 
 import {
@@ -23,9 +18,18 @@ import {
   TindakLanjut,
 } from "@/types";
 import { generateKodePelacak } from "./utils";
+import {
+  createSessionSignature,
+  generateSecureToken,
+  RateLimiter,
+  sanitizeFileName,
+  sanitizeInput,
+  validateUploadedFile,
+  verifySessionSignature,
+} from "./security";
+import { supabase } from "./supabase";
 
-
-// Helper pembersih istilah Guru BK / Bimbingan Konseling agar seragam menjadi Admin
+// Helper pembersih istilah Guru BK / Bimbingan Konseling
 export function cleanAdminText(text: string): string {
   if (!text) return text;
   return text
@@ -35,135 +39,174 @@ export function cleanAdminText(text: string): string {
     .replace(/Guru\s*BK/gi, "Admin");
 }
 
-// Kunci penyimpanan LocalStorage
-const LAPORAN_STORAGE_KEY = "safereport_real_laporan";
-const ADMINS_STORAGE_KEY = "safereport_real_admins";
-const STUDENTS_STORAGE_KEY = "safereport_real_students";
-const SESSION_KEY = "safereport_real_user";
-
-// Default Initial Admin (agar pengguna pertama kali bisa langsung masuk)
-const DEFAULT_INITIAL_ADMIN: AdminAccount = {
-  id: "admin-utama",
-  nama: "Admin Sekolah",
-  email: "admin@sekolah.id",
-  password: "admin",
-  nip_jabatan: "Administrator Sekolah",
-  created_at: new Date().toISOString(),
-};
-
-const DEFAULT_INITIAL_STUDENT: StudentAccount = {
-  id: "siswa-demo",
-  nisn: "000",
-  nama: "Siswa Demo",
-  kelas: "X MIPA 1",
-  password: "123456",
-  created_at: new Date().toISOString(),
-};
-
-// =====================================================
-// Helper Storage Functions
-// =====================================================
-
-// Pembersihan otomatis seluruh pengaduan lama sesuai permintaan reset
-if (typeof window !== "undefined") {
-  const CLEAR_FLAG = "safereport_data_cleared_v3";
-  if (!localStorage.getItem(CLEAR_FLAG)) {
-    localStorage.removeItem(LAPORAN_STORAGE_KEY);
-    localStorage.setItem(CLEAR_FLAG, "true");
-  }
-}
-
-function readStorage<T>(key: string, defaultValue: T): T {
-  if (typeof window === "undefined") return defaultValue;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) {
-      localStorage.setItem(key, JSON.stringify(defaultValue));
-      return defaultValue;
-    }
-    return JSON.parse(raw) as T;
-  } catch {
-    return defaultValue;
-  }
-}
-
-function writeStorage<T>(key: string, data: T): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (err) {
-    console.error("Gagal menyimpan ke localStorage:", err);
-  }
-}
-
 // =====================================================
 // 1. SERVICE: LAPORAN (PENGADUAN)
 // =====================================================
 export const LaporanService = {
-  getAll(): Laporan[] {
-    const list = readStorage<Laporan[]>(LAPORAN_STORAGE_KEY, []);
-    let changed = false;
-    const cleaned = list.map((l) => {
-      if (l.tindak_lanjut && l.tindak_lanjut.length > 0) {
-        let tlChanged = false;
-        const cleanTl = l.tindak_lanjut.map((t) => {
-          const newOleh = cleanAdminText(t.oleh_nama);
-          const newPesan = cleanAdminText(t.pesan);
-          if (newOleh !== t.oleh_nama || newPesan !== t.pesan) {
-            tlChanged = true;
-            return { ...t, oleh_nama: newOleh, pesan: newPesan };
-          }
-          return t;
-        });
-        if (tlChanged) {
-          changed = true;
-          return { ...l, tindak_lanjut: cleanTl };
-        }
-      }
-      return l;
-    });
-    if (changed) {
-      writeStorage(LAPORAN_STORAGE_KEY, cleaned);
+  async getAll(): Promise<Laporan[]> {
+    const { data, error } = await supabase
+      .from("laporan")
+      .select(
+        `
+        *,
+        bukti:bukti_laporan(*),
+        tindak_lanjut(*)
+      `
+      )
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching laporan:", error);
+      return [];
     }
-    return cleaned;
+
+    return (data || []).map((row) => ({
+      id: row.id,
+      kode_pelacak: row.kode_pelacak,
+      is_anonim: row.is_anonim,
+      pelapor_id: row.pelapor_id,
+      nama_pelapor: row.nama_pelapor,
+      kontak_opsional: row.kontak_opsional,
+      peran_pelapor: row.peran_pelapor,
+      kategori: row.kategori,
+      nama_pelaku: row.nama_pelaku,
+      lokasi: row.lokasi,
+      tanggal_kejadian: row.tanggal_kejadian,
+      deskripsi: row.deskripsi,
+      bukti: row.bukti || [],
+      status: row.status,
+      tindak_lanjut: (row.tindak_lanjut || []).sort(
+        (a: TindakLanjut, b: TindakLanjut) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      ),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
   },
 
-  getByKode(kode: string): Laporan | null {
+  async getByKode(kode: string): Promise<Laporan | null> {
     const clean = kode.trim().toUpperCase();
-    const list = this.getAll();
-    return list.find((l) => l.kode_pelacak === clean) ?? null;
+    const { data, error } = await supabase
+      .from("laporan")
+      .select(
+        `
+        *,
+        bukti:bukti_laporan(*),
+        tindak_lanjut(*)
+      `
+      )
+      .eq("kode_pelacak", clean)
+      .single();
+
+    if (error || !data) return null;
+
+    return {
+      id: data.id,
+      kode_pelacak: data.kode_pelacak,
+      is_anonim: data.is_anonim,
+      pelapor_id: data.pelapor_id,
+      nama_pelapor: data.nama_pelapor,
+      kontak_opsional: data.kontak_opsional,
+      peran_pelapor: data.peran_pelapor,
+      kategori: data.kategori,
+      nama_pelaku: data.nama_pelaku,
+      lokasi: data.lokasi,
+      tanggal_kejadian: data.tanggal_kejadian,
+      deskripsi: data.deskripsi,
+      bukti: data.bukti || [],
+      status: data.status,
+      tindak_lanjut: (data.tindak_lanjut || []).sort(
+        (a: TindakLanjut, b: TindakLanjut) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      ),
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    };
   },
 
-  getByPelaporId(pelaporId: string): Laporan[] {
-    return this.getAll().filter((l) => l.pelapor_id === pelaporId);
+  async getByPelaporId(pelaporId: string): Promise<Laporan[]> {
+    const { data, error } = await supabase
+      .from("laporan")
+      .select(
+        `
+        *,
+        bukti:bukti_laporan(*),
+        tindak_lanjut(*)
+      `
+      )
+      .eq("pelapor_id", pelaporId)
+      .order("created_at", { ascending: false });
+
+    if (error) return [];
+
+    return (data || []).map((row) => ({
+      id: row.id,
+      kode_pelacak: row.kode_pelacak,
+      is_anonim: row.is_anonim,
+      pelapor_id: row.pelapor_id,
+      nama_pelapor: row.nama_pelapor,
+      kontak_opsional: row.kontak_opsional,
+      peran_pelapor: row.peran_pelapor,
+      kategori: row.kategori,
+      nama_pelaku: row.nama_pelaku,
+      lokasi: row.lokasi,
+      tanggal_kejadian: row.tanggal_kejadian,
+      deskripsi: row.deskripsi,
+      bukti: row.bukti || [],
+      status: row.status,
+      tindak_lanjut: (row.tindak_lanjut || []).sort(
+        (a: TindakLanjut, b: TindakLanjut) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      ),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
   },
 
-  async create(data: FormLaporanData, user: Profile | null): Promise<Laporan> {
+  async create(
+    data: FormLaporanData,
+    user: Profile | null
+  ): Promise<Laporan> {
     // 1. Cek Honeypot (Anti-Bot Trap)
     if (data._hp_trap && data._hp_trap.trim().length > 0) {
       throw new Error("Pengiriman tidak valid terdeteksi (bot protection).");
     }
 
-    // 2. Cek Rate Limiting (Maks 5 pengaduan per 10 menit, jeda 15 detik)
-    const rateCheck = RateLimiter.check("kirim_laporan", 5, 10 * 60 * 1000, 15 * 1000);
+    // 2. Cek Rate Limiting
+    const rateCheck = RateLimiter.check(
+      "kirim_laporan",
+      5,
+      10 * 60 * 1000,
+      15 * 1000
+    );
     if (!rateCheck.allowed) {
       throw new Error(rateCheck.error || "Batas pengiriman laporan tercapai.");
     }
 
-    // 3. Sanitasi Input XSS dan Validasi Panjang Teks
+    // 3. Sanitasi Input
     const cleanLokasi = sanitizeInput(data.lokasi);
     const cleanDeskripsi = sanitizeInput(data.deskripsi);
-    const cleanNamaPelaku = data.nama_pelaku ? sanitizeInput(data.nama_pelaku) : null;
-    const cleanKontak = data.kontak_opsional ? sanitizeInput(data.kontak_opsional) : null;
+    const cleanNamaPelaku = data.nama_pelaku
+      ? sanitizeInput(data.nama_pelaku)
+      : null;
+    const cleanKontak = data.kontak_opsional
+      ? sanitizeInput(data.kontak_opsional)
+      : null;
 
     if (!cleanLokasi || cleanLokasi.length < 3 || cleanLokasi.length > 150) {
       throw new Error("Lokasi kejadian harus antara 3 hingga 150 karakter.");
     }
-    if (!cleanDeskripsi || cleanDeskripsi.length < 15 || cleanDeskripsi.length > 3000) {
-      throw new Error("Kronologi kejadian harus antara 15 hingga 3000 karakter.");
+    if (
+      !cleanDeskripsi ||
+      cleanDeskripsi.length < 15 ||
+      cleanDeskripsi.length > 3000
+    ) {
+      throw new Error(
+        "Kronologi kejadian harus antara 15 hingga 3000 karakter."
+      );
     }
 
-    // 4. Validasi Keamanan Berkas Bukti (Ukuran, MIME, Ekstensi, Sanitasi Nama)
+    // 4. Upload Bukti ke Supabase Storage
     const buktiList: BuktiFile[] = [];
     if (data.bukti_files && data.bukti_files.length > 0) {
       if (data.bukti_files.length > 3) {
@@ -175,113 +218,156 @@ export const LaporanService = {
           throw new Error(fileCheck.error || "Berkas lampiran tidak valid.");
         }
 
-        const dataUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = () => resolve("");
-          reader.readAsDataURL(file);
-        });
+        const safeName = `${Date.now()}-${sanitizeFileName(file.name)}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from("bukti-laporan")
+          .upload(safeName, file, { contentType: file.type });
+
+        if (uploadError) {
+          throw new Error(`Gagal mengunggah berkas: ${uploadError.message}`);
+        }
+
+        const { data: publicUrl } = supabase.storage
+          .from("bukti-laporan")
+          .getPublicUrl(uploadData.path);
 
         buktiList.push({
           id: `bukti-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
           nama_file: sanitizeFileName(file.name),
-          url: dataUrl,
+          url: publicUrl.publicUrl,
           tipe_file: file.type,
           ukuran_byte: file.size,
         });
       }
     }
 
-    const isSiswaIdentity = data.mode_identitas === "siswa" && Boolean(user);
+    const isSiswaIdentity =
+      data.mode_identitas === "siswa" && Boolean(user);
     const isAnonim = !isSiswaIdentity;
     const kode = generateKodePelacak("SF");
-
     const now = new Date().toISOString();
-    const laporan: Laporan = {
-      id: `lap-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-      kode_pelacak: kode,
-      is_anonim: isAnonim,
-      pelapor_id: user?.id ?? null,
-      nama_pelapor: isSiswaIdentity && user ? `${user.nama} (${user.nisn_kelas ?? "Siswa"})` : null,
-      kontak_opsional: cleanKontak || null,
-      peran_pelapor: data.peran_pelapor,
-      kategori: data.kategori,
-      nama_pelaku: cleanNamaPelaku || null,
-      lokasi: cleanLokasi,
-      tanggal_kejadian: data.tanggal_kejadian,
-      deskripsi: cleanDeskripsi,
-      bukti: buktiList,
-      status: "baru",
-      tindak_lanjut: [
-        {
-          id: `tl-${Date.now()}`,
-          laporan_id: "",
-          pesan: "Laporan telah diterima oleh sistem dan menunggu peninjauan tim Admin.",
-          oleh_nama: "Sistem SafeReport",
-          is_publik: true,
-          created_at: now,
-        },
-      ],
-      created_at: now,
-      updated_at: now,
-    };
 
-    laporan.tindak_lanjut![0].laporan_id = laporan.id;
+    // 5. Insert Laporan ke Database
+    const { data: laporanRow, error: laporanError } = await supabase
+      .from("laporan")
+      .insert({
+        kode_pelacak: kode,
+        is_anonim: isAnonim,
+        pelapor_id:
+          isSiswaIdentity && user ? user.id : null,
+        nama_pelapor:
+          isSiswaIdentity && user
+            ? `${user.nama} (${user.nisn_kelas ?? "Siswa"})`
+            : null,
+        kontak_opsional: cleanKontak || null,
+        peran_pelapor: data.peran_pelapor,
+        kategori: data.kategori,
+        nama_pelaku: cleanNamaPelaku || null,
+        lokasi: cleanLokasi,
+        tanggal_kejadian: data.tanggal_kejadian,
+        deskripsi: cleanDeskripsi,
+        status: "baru",
+      })
+      .select()
+      .single();
 
-    const list = this.getAll();
-    writeStorage(LAPORAN_STORAGE_KEY, [laporan, ...list]);
+    if (laporanError || !laporanRow) {
+      throw new Error(
+        `Gagal menyimpan laporan: ${laporanError?.message ?? "unknown"}`
+      );
+    }
 
-    // Catat ke RateLimiter setelah berhasil kirim
+    // 6. Insert Bukti Files
+    if (buktiList.length > 0) {
+      const buktiRows = buktiList.map((b) => ({
+        laporan_id: laporanRow.id,
+        nama_file: b.nama_file,
+        url: b.url,
+        tipe_file: b.tipe_file,
+        ukuran_byte: b.ukuran_byte,
+      }));
+      await supabase.from("bukti_laporan").insert(buktiRows);
+    }
+
+    // 7. Insert Tindak Lanjut awal dari Sistem
+    const { data: tlRow } = await supabase
+      .from("tindak_lanjut")
+      .insert({
+        laporan_id: laporanRow.id,
+        pesan:
+          "Laporan telah diterima oleh sistem dan menunggu peninjauan tim Admin.",
+        oleh_nama: "Sistem SafeReport",
+        is_publik: true,
+      })
+      .select()
+      .single();
+
+    // Catat ke RateLimiter
     RateLimiter.record("kirim_laporan");
 
-    return laporan;
-  },
-
-  updateStatus(id: string, status: StatusLaporan): boolean {
-    const list = this.getAll();
-    const idx = list.findIndex((l) => l.id === id);
-    if (idx === -1) return false;
-    list[idx].status = status;
-    list[idx].updated_at = new Date().toISOString();
-    writeStorage(LAPORAN_STORAGE_KEY, list);
-    return true;
-  },
-
-  addTindakLanjut(laporanId: string, pesan: string, adminNama: string): TindakLanjut | null {
-    const list = this.getAll();
-    const idx = list.findIndex((l) => l.id === laporanId);
-    if (idx === -1) return null;
-
-    const tl: TindakLanjut = {
-      id: `tl-${Date.now()}`,
-      laporan_id: laporanId,
-      pesan: pesan.trim(),
-      oleh_nama: adminNama,
-      is_publik: true,
-      created_at: new Date().toISOString(),
+    return {
+      id: laporanRow.id,
+      kode_pelacak: laporanRow.kode_pelacak,
+      is_anonim: laporanRow.is_anonim,
+      pelapor_id: laporanRow.pelapor_id,
+      nama_pelapor: laporanRow.nama_pelapor,
+      kontak_opsional: laporanRow.kontak_opsional,
+      peran_pelapor: laporanRow.peran_pelapor,
+      kategori: laporanRow.kategori,
+      nama_pelaku: laporanRow.nama_pelaku,
+      lokasi: laporanRow.lokasi,
+      tanggal_kejadian: laporanRow.tanggal_kejadian,
+      deskripsi: laporanRow.deskripsi,
+      bukti: buktiList,
+      status: laporanRow.status,
+      tindak_lanjut: tlRow ? [tlRow] : [],
+      created_at: laporanRow.created_at,
+      updated_at: laporanRow.updated_at,
     };
-
-    if (!list[idx].tindak_lanjut) list[idx].tindak_lanjut = [];
-    list[idx].tindak_lanjut!.push(tl);
-    list[idx].updated_at = new Date().toISOString();
-    writeStorage(LAPORAN_STORAGE_KEY, list);
-    return tl;
   },
 
-  clearAll(): void {
-    writeStorage(LAPORAN_STORAGE_KEY, []);
+  async updateStatus(id: string, status: StatusLaporan): Promise<boolean> {
+    const { error } = await supabase
+      .from("laporan")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    return !error;
   },
 
-  deleteAll(): void {
-    writeStorage(LAPORAN_STORAGE_KEY, []);
+  async addTindakLanjut(
+    laporanId: string,
+    pesan: string,
+    adminNama: string
+  ): Promise<TindakLanjut | null> {
+    const { data, error } = await supabase
+      .from("tindak_lanjut")
+      .insert({
+        laporan_id: laporanId,
+        pesan: pesan.trim(),
+        oleh_nama: adminNama,
+        is_publik: true,
+      })
+      .select()
+      .single();
+
+    if (error || !data) return null;
+
+    // Update updated_at laporan
+    await supabase
+      .from("laporan")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", laporanId);
+
+    return data as TindakLanjut;
   },
 
-  delete(id: string): boolean {
-    const list = this.getAll();
-    const filtered = list.filter((l) => l.id !== id);
-    if (filtered.length === list.length) return false;
-    writeStorage(LAPORAN_STORAGE_KEY, filtered);
-    return true;
+  async delete(id: string): Promise<boolean> {
+    const { error } = await supabase.from("laporan").delete().eq("id", id);
+    return !error;
+  },
+
+  async deleteAll(): Promise<void> {
+    await supabase.from("laporan").delete().neq("id", "00000000-0000-0000-0000-000000000000");
   },
 };
 
@@ -289,135 +375,127 @@ export const LaporanService = {
 // 2. SERVICE: KELOLA AKUN ADMIN
 // ==========================================
 export const AdminService = {
-  getAll(): AdminAccount[] {
-    const list = readStorage<AdminAccount[]>(ADMINS_STORAGE_KEY, [DEFAULT_INITIAL_ADMIN]);
-    let changed = false;
-    const cleaned = list.map((a) => {
-      const newNama = cleanAdminText(a.nama);
-      const newJabatan = a.nip_jabatan ? cleanAdminText(a.nip_jabatan) : "Administrator Sekolah";
-      if (newNama !== a.nama || newJabatan !== a.nip_jabatan) {
-        changed = true;
-        return { ...a, nama: newNama, nip_jabatan: newJabatan };
-      }
-      return a;
-    });
-    if (changed) {
-      writeStorage(ADMINS_STORAGE_KEY, cleaned);
-    }
-    return cleaned;
+  async getAll(): Promise<AdminAccount[]> {
+    const { data, error } = await supabase
+      .from("admins")
+      .select("*")
+      .order("created_at", { ascending: true });
+
+    if (error) return [];
+    return data || [];
   },
 
-  create(admin: Omit<AdminAccount, "id" | "created_at">): AdminAccount {
-    const list = this.getAll();
-    const newAdmin: AdminAccount = {
-      id: `admin-${Date.now()}`,
-      nama: admin.nama.trim(),
-      email: admin.email.trim().toLowerCase(),
-      password: admin.password || "admin",
-      nip_jabatan: admin.nip_jabatan?.trim() || "Staf Admin",
-      created_at: new Date().toISOString(),
-    };
-    writeStorage(ADMINS_STORAGE_KEY, [...list, newAdmin]);
-    return newAdmin;
+  async create(
+    admin: Omit<AdminAccount, "id" | "created_at">
+  ): Promise<AdminAccount> {
+    const { data, error } = await supabase
+      .from("admins")
+      .insert({
+        nama: admin.nama.trim(),
+        email: admin.email.trim().toLowerCase(),
+        password: admin.password || "admin",
+        nip_jabatan: admin.nip_jabatan?.trim() || "Staf Admin",
+      })
+      .select()
+      .single();
+
+    if (error || !data) throw new Error("Gagal membuat akun admin");
+    return data;
   },
 
-  login(email: string, password?: string): AdminAccount | null {
-    const list = this.getAll();
+  async login(email: string, password?: string): Promise<AdminAccount | null> {
     const cleanEmail = email.trim().toLowerCase();
-    const found = list.find((a) => a.email.toLowerCase() === cleanEmail);
-    if (!found) return null;
-    if (password && found.password && found.password !== password) {
-      return null;
-    }
-    return found;
+    const { data, error } = await supabase
+      .from("admins")
+      .select("*")
+      .eq("email", cleanEmail)
+      .single();
+
+    if (error || !data) return null;
+    if (password && data.password && data.password !== password) return null;
+    return data;
   },
 };
 
 // ==========================================
-// 3. SERVICE: KELOLA AKUN SISWA (DIBUAT OLEH ADMIN)
+// 3. SERVICE: KELOLA AKUN SISWA
 // ==========================================
 export const StudentService = {
-  getAll(): StudentAccount[] {
-    const list = readStorage<StudentAccount[]>(STUDENTS_STORAGE_KEY, [DEFAULT_INITIAL_STUDENT]);
-    if (!list.some((s) => s.nisn === "000")) {
-      list.push(DEFAULT_INITIAL_STUDENT);
-      writeStorage(STUDENTS_STORAGE_KEY, list);
-    }
-    return list;
+  async getAll(): Promise<StudentAccount[]> {
+    const { data, error } = await supabase
+      .from("siswa")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) return [];
+    return data || [];
   },
 
-  create(data: { nisn: string; nama: string; kelas: string; password?: string }): StudentAccount {
-    const list = this.getAll();
-    const newStudent: StudentAccount = {
-      id: `siswa-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      nisn: data.nisn.trim(),
-      nama: data.nama.trim(),
-      kelas: data.kelas.trim(),
-      password: data.password?.trim() || "123456",
-      created_at: new Date().toISOString(),
-    };
-    writeStorage(STUDENTS_STORAGE_KEY, [newStudent, ...list]);
-    return newStudent;
+  async create(dataInput: {
+    nisn: string;
+    nama: string;
+    kelas: string;
+    password?: string;
+  }): Promise<StudentAccount> {
+    const { data, error } = await supabase
+      .from("siswa")
+      .insert({
+        nisn: dataInput.nisn.trim(),
+        nama: dataInput.nama.trim(),
+        kelas: dataInput.kelas.trim(),
+        password: dataInput.password?.trim() || "123456",
+      })
+      .select()
+      .single();
+
+    if (error || !data) throw new Error("Gagal membuat akun siswa");
+    return data;
   },
 
-  delete(id: string): boolean {
-    const list = this.getAll();
-    const filtered = list.filter((s) => s.id !== id);
-    if (filtered.length === list.length) return false;
-    writeStorage(STUDENTS_STORAGE_KEY, filtered);
-    return true;
+  async delete(id: string): Promise<boolean> {
+    const { error } = await supabase.from("siswa").delete().eq("id", id);
+    return !error;
   },
 
-  login(nisn: string, password?: string): StudentAccount | null {
-    const list = this.getAll();
+  async login(
+    nisn: string,
+    password?: string
+  ): Promise<StudentAccount | null> {
     const cleanNisn = nisn.trim();
-    const found = list.find((s) => s.nisn === cleanNisn);
-    if (!found) return null;
-    if (password && found.password && found.password !== password) {
-      return null;
-    }
-    return found;
+    const { data, error } = await supabase
+      .from("siswa")
+      .select("*")
+      .eq("nisn", cleanNisn)
+      .single();
+
+    if (error || !data) return null;
+    if (password && data.password && data.password !== password) return null;
+    return data;
   },
 };
 
-// ==========================================
 // =====================================================
-// 4. SERVICE: SESI PENGGUNA (AUTH SESSION KEAMANAN TINGGI)
-// - Masa berlaku sesi otomatis (TTL: Admin 4 jam, Siswa 12 jam)
-// - Tanda tangan kriptografis integritas sesi (Anti-Tampering localStorage)
-// - Verifikasi eksistensi akun asli secara otomatis
+// 4. SERVICE: SESI PENGGUNA (AUTH SESSION)
 // =====================================================
 const SECURE_SESSION_KEY = "safereport_real_session";
-const ADMIN_SESSION_TTL = 4 * 60 * 60 * 1000;    // 4 Jam
+const ADMIN_SESSION_TTL = 4 * 60 * 60 * 1000; // 4 Jam
 const STUDENT_SESSION_TTL = 12 * 60 * 60 * 1000; // 12 Jam
 
 export const AuthService = {
   getUser(): Profile | null {
     if (typeof window === "undefined") return null;
     try {
-      // Bersihkan residu di localStorage agar sesi lama yang tersimpan permanen tidak menahan pengguna
-      if (localStorage.getItem(SECURE_SESSION_KEY)) {
-        localStorage.removeItem(SECURE_SESSION_KEY);
-      }
-      if (localStorage.getItem(SESSION_KEY)) {
-        localStorage.removeItem(SESSION_KEY);
-      }
-
-      // Gunakan sessionStorage agar sesi murni berakhir otomatis saat tab / browser ditutup
       const raw = sessionStorage.getItem(SECURE_SESSION_KEY);
       if (!raw) return null;
 
       const session: SessionData = JSON.parse(raw);
       const now = Date.now();
 
-      // 1. Cek Masa Berlaku Sesi (Expiration Check)
       if (now > session.expiresAt) {
-        console.warn("Sesi pengguna telah kadaluarsa demi keamanan.");
         this.logout();
         return null;
       }
 
-      // 2. Cek Integritas Tanda Tangan Sesi (Anti-Tampering)
       const isValidSignature = verifySessionSignature(
         session.user,
         session.expiresAt,
@@ -425,39 +503,11 @@ export const AuthService = {
         session.signature
       );
       if (!isValidSignature) {
-        console.warn("Manipulasi sesi lokal terdeteksi! Sesi dibatalkan demi keamanan.");
         this.logout();
         return null;
       }
 
-      // 3. Verifikasi Keberadaan Akun Asli di Database
-      if (session.user.role === "admin") {
-        const admins = AdminService.getAll();
-        const exists = admins.some((a) => a.id === session.user.id);
-        if (!exists) {
-          this.logout();
-          return null;
-        }
-      } else if (session.user.role === "siswa") {
-        const students = StudentService.getAll();
-        const exists = students.some((s) => s.id === session.user.id);
-        if (!exists) {
-          this.logout();
-          return null;
-        }
-      }
-
-      // Otomatis migrasikan jika sesi pengguna masih menyimpan teks lama "Bimbingan Konseling"
-      const user = session.user;
-      const cleanNama = cleanAdminText(user.nama);
-      const cleanNisn = user.nisn_kelas ? cleanAdminText(user.nisn_kelas) : user.nisn_kelas;
-      if (cleanNama !== user.nama || cleanNisn !== user.nisn_kelas) {
-        user.nama = cleanNama;
-        user.nisn_kelas = cleanNisn;
-        this.setUser(user);
-      }
-
-      return user;
+      return session.user;
     } catch {
       this.logout();
       return null;
@@ -467,7 +517,8 @@ export const AuthService = {
   setUser(user: Profile): void {
     if (typeof window === "undefined") return;
     const token = generateSecureToken(32);
-    const ttl = user.role === "admin" ? ADMIN_SESSION_TTL : STUDENT_SESSION_TTL;
+    const ttl =
+      user.role === "admin" ? ADMIN_SESSION_TTL : STUDENT_SESSION_TTL;
     const expiresAt = Date.now() + ttl;
     const signature = createSessionSignature(user, expiresAt, token);
 
@@ -479,61 +530,52 @@ export const AuthService = {
       signature,
     };
 
-    // Simpan ke sessionStorage (otomatis hilang saat browser / tab ditutup)
     sessionStorage.setItem(SECURE_SESSION_KEY, JSON.stringify(session));
-    // Pastikan localStorage selalu bersih
-    localStorage.removeItem(SECURE_SESSION_KEY);
-    localStorage.removeItem(SESSION_KEY);
   },
 
   logout(): void {
     if (typeof window === "undefined") return;
     try {
       sessionStorage.removeItem(SECURE_SESSION_KEY);
-      sessionStorage.removeItem(SESSION_KEY);
-      localStorage.removeItem(SECURE_SESSION_KEY);
-      localStorage.removeItem(SESSION_KEY);
     } catch (e) {
       console.error(e);
     }
   },
 };
-// =====================================================
-// 5. SERVICE: KELOLA DATA KELAS (DIBUAT OLEH ADMIN)
-// =====================================================
-const KELAS_STORAGE_KEY = "safereport_real_kelas";
-const DEFAULT_INITIAL_KELAS = [
-  "X MIPA 1",
-  "X MIPA 2",
-  "X IPS 1",
-  "XI MIPA 1",
-  "XI IPS 1",
-  "XII MIPA 1",
-  "XII IPS 1",
-];
 
+// =====================================================
+// 5. SERVICE: KELOLA DATA KELAS
+// =====================================================
 export const KelasService = {
-  getAll(): string[] {
-    return readStorage<string[]>(KELAS_STORAGE_KEY, DEFAULT_INITIAL_KELAS);
+  async getAll(): Promise<string[]> {
+    const { data, error } = await supabase
+      .from("kelas")
+      .select("nama")
+      .order("nama", { ascending: true });
+
+    if (error || !data || data.length === 0) {
+      return [
+        "X MIPA 1",
+        "X MIPA 2",
+        "X IPS 1",
+        "XI MIPA 1",
+        "XI IPS 1",
+        "XII MIPA 1",
+        "XII IPS 1",
+      ];
+    }
+    return data.map((k) => k.nama);
   },
 
-  add(nama: string): boolean {
+  async add(nama: string): Promise<boolean> {
     const clean = nama.trim();
     if (!clean) return false;
-    const list = this.getAll();
-    if (list.map(k => k.toLowerCase()).includes(clean.toLowerCase())) {
-      return false; // sudah ada
-    }
-    const updated = [...list, clean];
-    writeStorage(KELAS_STORAGE_KEY, updated);
-    return true;
+    const { error } = await supabase.from("kelas").insert({ nama: clean });
+    return !error;
   },
 
-  delete(nama: string): boolean {
-    const list = this.getAll();
-    const updated = list.filter((k) => k !== nama);
-    if (updated.length === list.length) return false;
-    writeStorage(KELAS_STORAGE_KEY, updated);
-    return true;
+  async delete(nama: string): Promise<boolean> {
+    const { error } = await supabase.from("kelas").delete().eq("nama", nama);
+    return !error;
   },
 };

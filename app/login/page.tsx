@@ -38,7 +38,7 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleStudentLogin = (e: React.FormEvent) => {
+  const handleStudentLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validasi Pop-up
@@ -54,7 +54,7 @@ function LoginForm() {
     setIsLoading(true);
 
     try {
-      const student = StudentService.login(nisn, password);
+      const student = await StudentService.login(nisn, password);
       if (!student) {
         toast("NISN atau kata sandi tidak cocok. Akun siswa didaftarkan oleh Admin di sekolah.", "error");
         setIsLoading(false);

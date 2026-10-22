@@ -63,10 +63,10 @@ export default function AdminDashboardPage() {
   const [siswaMsg, setSiswaMsg] = useState<string | null>(null);
 
   // Muat data awal
-  const loadData = () => {
-    setLaporanList(LaporanService.getAll());
-    setStudents(StudentService.getAll());
-    setKelasList(KelasService.getAll());
+  const loadData = async () => {
+    setLaporanList(await LaporanService.getAll());
+    setStudents(await StudentService.getAll());
+    setKelasList(await KelasService.getAll());
   };
 
   useEffect(() => {
@@ -120,8 +120,8 @@ export default function AdminDashboardPage() {
   };
 
   // Ubah status laporan
-  const handleChangeStatus = (id: string, newStatus: StatusLaporan) => {
-    LaporanService.updateStatus(id, newStatus);
+  const handleChangeStatus = async (id: string, newStatus: StatusLaporan) => {
+    await LaporanService.updateStatus(id, newStatus);
     loadData();
     if (activeLaporan && activeLaporan.id === id) {
       setActiveLaporan({ ...activeLaporan, status: newStatus });
@@ -130,27 +130,27 @@ export default function AdminDashboardPage() {
   };
 
   // Tambah balasan tindak lanjut
-  const handleKirimBalasan = (e: React.FormEvent) => {
+  const handleKirimBalasan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeLaporan || !balasanPesan.trim() || !admin) return;
 
     setIsSendingBalasan(true);
-    LaporanService.addTindakLanjut(activeLaporan.id, balasanPesan.trim(), admin.nama);
+    await LaporanService.addTindakLanjut(activeLaporan.id, balasanPesan.trim(), admin.nama);
     setBalasanPesan("");
     loadData();
 
-    const updated = LaporanService.getByKode(activeLaporan.kode_pelacak);
+    const updated = await LaporanService.getByKode(activeLaporan.kode_pelacak);
     if (updated) setActiveLaporan(updated);
     setIsSendingBalasan(false);
     toast("Balasan tindak lanjut berhasil dikirim ke pelapor.", "success");
   };
 
   // Tambah Kelas Baru
-  const handleTambahKelas = (e: React.FormEvent) => {
+  const handleTambahKelas = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newKelasInput.trim()) return;
 
-    const success = KelasService.add(newKelasInput);
+    const success = await KelasService.add(newKelasInput);
     if (!success) {
       setKelasMsg(`Kelas "${newKelasInput.trim()}" sudah ada sebelumnya.`);
       setTimeout(() => setKelasMsg(null), 3000);
@@ -177,7 +177,7 @@ export default function AdminDashboardPage() {
     });
 
     if (ok) {
-      KelasService.delete(namaKelas);
+      await KelasService.delete(namaKelas);
       if (newSiswaKelas === namaKelas) {
         setNewSiswaKelas("");
       }
@@ -187,11 +187,11 @@ export default function AdminDashboardPage() {
   };
 
   // Tambah akun siswa baru
-  const handleTambahSiswa = (e: React.FormEvent) => {
+  const handleTambahSiswa = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSiswaNama.trim() || !newSiswaNisn.trim() || !newSiswaKelas.trim()) return;
 
-    StudentService.create({
+    await StudentService.create({
       nama: newSiswaNama,
       nisn: newSiswaNisn,
       kelas: newSiswaKelas,
@@ -220,7 +220,7 @@ export default function AdminDashboardPage() {
     });
 
     if (ok) {
-      LaporanService.clearAll();
+      await LaporanService.deleteAll();
       loadData();
       setActiveLaporan(null);
       toast("Seluruh data pengaduan berhasil dibersihkan.", "success");
@@ -238,7 +238,7 @@ export default function AdminDashboardPage() {
     });
 
     if (ok) {
-      LaporanService.delete(id);
+      await LaporanService.delete(id);
       loadData();
       setActiveLaporan(null);
       toast(`Laporan ${kode} berhasil dihapus.`, "success");
@@ -256,7 +256,7 @@ export default function AdminDashboardPage() {
     });
 
     if (ok) {
-      StudentService.delete(id);
+      await StudentService.delete(id);
       loadData();
       toast(`Akun siswa ${nama} berhasil dihapus.`, "success");
     }

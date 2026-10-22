@@ -41,19 +41,20 @@ function StatusContent() {
 
     if (currentUser && kodeParam) {
       setInputKode(kodeParam);
-      const res = LaporanService.getByKode(kodeParam);
-      setLaporan(res);
-      setSearched(true);
+      LaporanService.getByKode(kodeParam).then((res) => {
+        setLaporan(res);
+        setSearched(true);
+      });
     }
   }, [kodeParam]);
 
-  const handleSearch = (overrideKode?: string) => {
+  const handleSearch = async (overrideKode?: string) => {
     const target = (overrideKode || inputKode).trim().toUpperCase();
     if (!target) {
       toast("Masukkan kode tiket pelacak terlebih dahulu (contoh: SF-ABC1234).", "warning");
       return;
     }
-    const res = LaporanService.getByKode(target);
+    const res = await LaporanService.getByKode(target);
     setLaporan(res);
     setSearched(true);
     if (!res) {

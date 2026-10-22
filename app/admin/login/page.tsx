@@ -92,7 +92,7 @@ export default function AdminLoginPage() {
       // Simulasi delay mikro untuk UX feedback yang halus
       await new Promise((resolve) => setTimeout(resolve, 350));
 
-      const admin = AdminService.login(cleanEmail, cleanPassword);
+      const admin = await AdminService.login(cleanEmail, cleanPassword);
       if (!admin) {
         RateLimiter.record("admin_login_attempt");
         setLoginError("Email atau kata sandi tidak cocok. Silakan periksa kembali.");
