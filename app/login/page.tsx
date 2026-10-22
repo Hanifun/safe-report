@@ -53,7 +53,7 @@ function LoginForm() {
     }
 
     if (!isSupabaseConfigured()) {
-      toast("⚠️ Supabase belum terhubung di Vercel. Pastikan Environment Variables sudah diatur lalu Redeploy.", "error");
+      toast("Layanan login sedang tidak tersedia. Silakan hubungi admin sekolah.", "error");
       return;
     }
 

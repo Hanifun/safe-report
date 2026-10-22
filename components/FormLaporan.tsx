@@ -123,8 +123,21 @@ export default function FormLaporan({ user, initialMode, onBackToMenu, onSuccess
       onSuccess(laporan.kode_pelacak);
       toast("Laporan pengaduan berhasil dikirim secara aman!", "success");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Gagal mengirim laporan. Silakan coba sesaat lagi.";
       console.error("Submit laporan error:", err);
+      let msg = "Gagal mengirim laporan. Silakan coba sesaat lagi.";
+      if (err instanceof Error) {
+        if (
+          err.message.includes("constraint") ||
+          err.message.includes("violates") ||
+          err.message.includes("relation") ||
+          err.message.includes("PGRST") ||
+          err.message.includes("syntax")
+        ) {
+          msg = "Terjadi kendala saat menyimpan laporan. Silakan periksa kembali data atau coba sesaat lagi.";
+        } else {
+          msg = err.message;
+        }
+      }
       toast(msg, "error");
       setError(msg);
     } finally {
