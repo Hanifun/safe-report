@@ -6,7 +6,7 @@
 -- 1. Buka https://supabase.com/dashboard
 -- 2. Pilih project kamu
 -- 3. Klik "SQL Editor" di sidebar kiri
--- 4. Paste seluruh isi file ini, lalu klik "Run"
+-- 4. Klik "New query", paste seluruh isi file ini, lalu klik "Run"
 -- =====================================================
 
 -- 1. Enable extension UUID
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS public.tindak_lanjut (
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()) NOT NULL
 );
 
--- 9. Row Level Security (RLS)
+-- 9. Row Level Security (RLS) & Hak Akses
 ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.siswa ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.kelas ENABLE ROW LEVEL SECURITY;
@@ -103,13 +103,27 @@ ALTER TABLE public.laporan ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bukti_laporan ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tindak_lanjut ENABLE ROW LEVEL SECURITY;
 
--- RLS Policy: akses terbuka dengan anon key (auth dilakukan manual di kode)
+-- Hapus policy lama jika ada agar aman di-run berulang kali
+DROP POLICY IF EXISTS "Allow all with anon key" ON public.admins;
+DROP POLICY IF EXISTS "Allow all with anon key" ON public.siswa;
+DROP POLICY IF EXISTS "Allow all with anon key" ON public.kelas;
+DROP POLICY IF EXISTS "Allow all with anon key" ON public.laporan;
+DROP POLICY IF EXISTS "Allow all with anon key" ON public.bukti_laporan;
+DROP POLICY IF EXISTS "Allow all with anon key" ON public.tindak_lanjut;
+
+-- Buat policy baru yang mengizinkan akses anon key
 CREATE POLICY "Allow all with anon key" ON public.admins FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all with anon key" ON public.siswa FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all with anon key" ON public.kelas FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all with anon key" ON public.laporan FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all with anon key" ON public.bukti_laporan FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all with anon key" ON public.tindak_lanjut FOR ALL USING (true) WITH CHECK (true);
+
+-- Berikan izin akses skema ke role anon & authenticated
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
 
 -- 10. Indeks untuk kecepatan pencarian
 CREATE INDEX IF NOT EXISTS idx_laporan_kode ON public.laporan(kode_pelacak);
@@ -123,12 +137,12 @@ CREATE INDEX IF NOT EXISTS idx_admin_email ON public.admins(email);
 -- 11. Data Awal — Admin Default
 INSERT INTO public.admins (nama, email, password, nip_jabatan)
 VALUES ('Admin Sekolah', 'admin@sekolah.id', 'admin', 'Administrator Sekolah')
-ON CONFLICT (email) DO NOTHING;
+ON CONFLICT (email) DO UPDATE SET password = 'admin';
 
 -- 12. Data Awal — Siswa Demo
 INSERT INTO public.siswa (nisn, nama, kelas, password)
 VALUES ('000', 'Siswa Demo', 'X MIPA 1', '123456')
-ON CONFLICT (nisn) DO NOTHING;
+ON CONFLICT (nisn) DO UPDATE SET password = '123456';
 
 -- 13. Data Awal — Kelas Default
 INSERT INTO public.kelas (nama) VALUES
@@ -136,3 +150,21 @@ INSERT INTO public.kelas (nama) VALUES
   ('XI MIPA 1'), ('XI MIPA 2'), ('XI IPS 1'), ('XI IPS 2'),
   ('XII MIPA 1'), ('XII MIPA 2'), ('XII IPS 1'), ('XII IPS 2')
 ON CONFLICT (nama) DO NOTHING;
+
+-- 14. Setup Storage Bucket untuk File Bukti Lampiran
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('bukti-laporan', 'bukti-laporan', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+DROP POLICY IF EXISTS "Allow public uploads to bukti-laporan" ON storage.objects;
+DROP POLICY IF EXISTS "Allow public reads from bukti-laporan" ON storage.objects;
+
+CREATE POLICY "Allow public uploads to bukti-laporan"
+ON storage.objects FOR INSERT
+TO public
+WITH CHECK (bucket_id = 'bukti-laporan');
+
+CREATE POLICY "Allow public reads from bukti-laporan"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'bukti-laporan');

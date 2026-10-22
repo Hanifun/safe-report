@@ -122,8 +122,11 @@ export default function FormLaporan({ user, initialMode, onBackToMenu, onSuccess
       );
       onSuccess(laporan.kode_pelacak);
       toast("Laporan pengaduan berhasil dikirim secara aman!", "success");
-    } catch {
-      toast("Gagal mengirim laporan. Silakan coba sesaat lagi.", "error");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Gagal mengirim laporan. Silakan coba sesaat lagi.";
+      console.error("Submit laporan error:", err);
+      toast(msg, "error");
+      setError(msg);
     } finally {
       setIsLoading(false);
     }

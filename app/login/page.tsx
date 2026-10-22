@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import { AuthService, StudentService } from "@/lib/data";
+import { isSupabaseConfigured } from "@/lib/supabase";
 import { useToast } from "@/components/ToastProvider";
 
 function LoginForm() {
@@ -48,6 +49,11 @@ function LoginForm() {
     }
     if (!password) {
       toast("Silakan masukkan kata sandi / PIN kamu.", "warning");
+      return;
+    }
+
+    if (!isSupabaseConfigured()) {
+      toast("⚠️ Supabase belum terhubung di Vercel. Pastikan Environment Variables sudah diatur lalu Redeploy.", "error");
       return;
     }
 

@@ -1,11 +1,22 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
+export function isSupabaseConfigured(): boolean {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  return Boolean(
+    url &&
+    !url.includes("placeholder-project") &&
+    url.startsWith("http") &&
+    key &&
+    !key.includes("placeholder-anon-key")
+  );
+}
+
 function getCleanUrl(): string {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   if (!url || url === "undefined" || url === "null" || url === "") {
     return "https://placeholder-project.supabase.co";
   }
-  // Pastikan memiliki protokol http/https
   if (!url.startsWith("http://") && !url.startsWith("https://")) {
     return `https://${url}`;
   }

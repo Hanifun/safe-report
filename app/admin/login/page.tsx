@@ -13,6 +13,7 @@ import {
   Lock,
 } from "lucide-react";
 import { AdminService, AuthService } from "@/lib/data";
+import { isSupabaseConfigured } from "@/lib/supabase";
 import { RateLimiter, sanitizeInput } from "@/lib/security";
 import Logo from "@/components/Logo";
 import { useToast } from "@/components/ToastProvider";
@@ -83,6 +84,12 @@ export default function AdminLoginPage() {
     const rateCheck = RateLimiter.check("admin_login_attempt", 5, 5 * 60 * 1000, 2000);
     if (!rateCheck.allowed) {
       setLoginError(rateCheck.error || "Terlalu banyak percobaan login gagal. Silakan tunggu beberapa saat.");
+      return;
+    }
+
+    if (!isSupabaseConfigured()) {
+      setLoginError("⚠️ Supabase belum terhubung di Vercel. Pastikan Environment Variables (NEXT_PUBLIC_SUPABASE_URL dan NEXT_PUBLIC_SUPABASE_ANON_KEY) sudah diisi di Vercel Settings lalu klik Redeploy!");
+      toast("Supabase belum terhubung di Vercel.", "error");
       return;
     }
 
