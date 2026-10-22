@@ -168,3 +168,7 @@ CREATE POLICY "Allow public reads from bukti-laporan"
 ON storage.objects FOR SELECT
 TO public
 USING (bucket_id = 'bukti-laporan');
+
+-- 15. Reload PostgREST Cache agar seluruh tabel langsung terbaca oleh API
+NOTIFY pgrst, 'reload schema';
+
