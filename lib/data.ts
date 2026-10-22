@@ -411,7 +411,11 @@ export const AdminService = {
       .eq("email", cleanEmail)
       .single();
 
-    if (error || !data) return null;
+    if (error) {
+      console.error("Supabase Admin login error:", error.message, error);
+      return null;
+    }
+    if (!data) return null;
     if (password && data.password && data.password !== password) return null;
     return data;
   },
@@ -468,7 +472,11 @@ export const StudentService = {
       .eq("nisn", cleanNisn)
       .single();
 
-    if (error || !data) return null;
+    if (error) {
+      console.error("Supabase Siswa login error:", error.message, error);
+      return null;
+    }
+    if (!data) return null;
     if (password && data.password && data.password !== password) return null;
     return data;
   },
