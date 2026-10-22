@@ -60,9 +60,9 @@ function LoginForm() {
     setIsLoading(true);
 
     try {
-      const student = await StudentService.login(nisn, password);
-      if (!student) {
-        toast("NISN atau kata sandi tidak cocok. Akun siswa didaftarkan oleh Admin di sekolah.", "error");
+      const { data: student, error: loginErr } = await StudentService.login(nisn, password);
+      if (loginErr || !student) {
+        toast(loginErr || "NISN atau kata sandi tidak cocok. Akun siswa didaftarkan oleh Admin di sekolah.", "error");
         setIsLoading(false);
         return;
       }
@@ -78,8 +78,9 @@ function LoginForm() {
 
       toast(`Selamat datang kembali, ${student.nama.split(" ")[0]}!`, "success");
       router.push(redirectTarget);
-    } catch {
-      toast("Terjadi kendala saat memproses login. Silakan coba kembali.", "error");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Terjadi kendala saat memproses login. Silakan coba kembali.";
+      toast(msg, "error");
     } finally {
       setIsLoading(false);
     }

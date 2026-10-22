@@ -13,7 +13,7 @@ import {
   Lock,
 } from "lucide-react";
 import { AdminService, AuthService } from "@/lib/data";
-import { isSupabaseConfigured } from "@/lib/supabase";
+import { isSupabaseConfigured, getSupabaseHost, supabase } from "@/lib/supabase";
 import { RateLimiter, sanitizeInput } from "@/lib/security";
 import Logo from "@/components/Logo";
 import { useToast } from "@/components/ToastProvider";
@@ -21,6 +21,53 @@ import { useToast } from "@/components/ToastProvider";
 export default function AdminLoginPage() {
   const router = useRouter();
   const { toast } = useToast();
+
+  // State Diagnostik Koneksi Supabase
+  const [dbDiagnostic, setDbDiagnostic] = useState<{
+    loading: boolean;
+    ok?: boolean;
+    error?: string;
+    count?: number;
+  }>({ loading: true });
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      setDbDiagnostic({
+        loading: false,
+        ok: false,
+        error: "Kunci Supabase belum diset di Vercel (NEXT_PUBLIC_SUPABASE_URL masih placeholder).",
+      });
+      return;
+    }
+
+    const checkDb = async () => {
+      try {
+        const { data, error } = await supabase.from("admins").select("email");
+        if (error) {
+          setDbDiagnostic({
+            loading: false,
+            ok: false,
+            error: `${error.message} (Kode: ${error.code || "unknown"})`,
+          });
+        } else {
+          setDbDiagnostic({
+            loading: false,
+            ok: true,
+            count: data?.length || 0,
+          });
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Gagal terhubung";
+        setDbDiagnostic({
+          loading: false,
+          ok: false,
+          error: `Koneksi gagal: ${msg}`,
+        });
+      }
+    };
+
+    checkDb();
+  }, []);
 
   // State Form Login (Default kosong, tidak menampilkan kredensial)
   const [loginEmail, setLoginEmail] = useState("");
@@ -99,11 +146,12 @@ export default function AdminLoginPage() {
       // Simulasi delay mikro untuk UX feedback yang halus
       await new Promise((resolve) => setTimeout(resolve, 350));
 
-      const admin = await AdminService.login(cleanEmail, cleanPassword);
-      if (!admin) {
+      const { data: admin, error: loginErr } = await AdminService.login(cleanEmail, cleanPassword);
+      if (loginErr || !admin) {
         RateLimiter.record("admin_login_attempt");
-        setLoginError("Email atau kata sandi tidak cocok. Silakan periksa kembali.");
-        toast("Email atau kata sandi admin tidak cocok.", "error");
+        const msg = loginErr || "Email atau kata sandi tidak cocok. Silakan periksa kembali.";
+        setLoginError(msg);
+        toast(msg, "error");
         setIsLoading(false);
         return;
       }
@@ -120,8 +168,9 @@ export default function AdminLoginPage() {
 
       toast("Login berhasil! Selamat datang di Portal Admin.", "success");
       router.push("/admin/dashboard");
-    } catch {
-      setLoginError("Terjadi kendala saat memproses login. Silakan coba kembali.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Terjadi kendala saat memproses login. Silakan coba kembali.";
+      setLoginError(msg);
       setIsLoading(false);
     }
   };
@@ -142,6 +191,35 @@ export default function AdminLoginPage() {
               Pusat kendali dan pengelolaan laporan pengaduan sekolah.
             </p>
           </div>
+
+          {/* Banner Status Diagnostik Database */}
+          {!dbDiagnostic.loading && !dbDiagnostic.ok && (
+            <div className="mb-5 p-3.5 rounded-2xl bg-rose-950/80 border border-rose-700 text-rose-200 text-xs flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+              <div>
+                <p className="font-bold text-rose-300">Kendala Database Supabase:</p>
+                <p className="mt-1 text-rose-200 leading-relaxed">{dbDiagnostic.error}</p>
+                <p className="mt-2 text-[11px] text-stone-400">
+                  Tip: Pastikan seluruh skema di <code className="text-amber-300">supabase_schema.sql</code> sudah dijalankan di menu <strong>SQL Editor</strong> Supabase.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!dbDiagnostic.loading && dbDiagnostic.ok && dbDiagnostic.count === 0 && (
+            <div className="mb-5 p-3.5 rounded-2xl bg-amber-950/70 border border-amber-600/70 text-amber-200 text-xs flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+              <div>
+                <p className="font-bold text-amber-300">Tabel 'admins' Masih Kosong (0 Akun):</p>
+                <p className="mt-1 text-stone-300 leading-relaxed">
+                  Tabel berhasil terhubung, tetapi belum ada akun admin. Silakan jalankan query INSERT di <strong>SQL Editor</strong> Supabase:
+                </p>
+                <pre className="mt-1.5 p-2 bg-stone-900 rounded-lg text-[10px] text-amber-300 overflow-x-auto">
+                  INSERT INTO public.admins (nama, email, password, nip_jabatan) VALUES ('Admin Sekolah', 'admin@sekolah.id', 'admin', 'Administrator');
+                </pre>
+              </div>
+            </div>
+          )}
 
           {/* Form Login Admin */}
           <form onSubmit={handleLogin} className="space-y-4.5" noValidate>
@@ -240,10 +318,31 @@ export default function AdminLoginPage() {
           </form>
 
           {/* Footer Card */}
-          <div className="mt-7 pt-4 border-t border-stone-700/60 text-center">
+          <div className="mt-7 pt-4 border-t border-stone-700/60 text-center space-y-2">
             <p className="text-[11px] text-stone-500">
               Akses terbatas hanya untuk staf & pengelola sekolah berwenang.
             </p>
+            <div className="pt-2 flex items-center justify-center gap-1.5 text-[10px] text-stone-400 font-mono">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  dbDiagnostic.loading
+                    ? "bg-amber-400 animate-ping"
+                    : dbDiagnostic.ok
+                    ? "bg-emerald-400"
+                    : "bg-rose-500"
+                }`}
+              />
+              <span>
+                Supabase:{" "}
+                <span className="text-stone-300">
+                  {dbDiagnostic.loading
+                    ? "Memeriksa..."
+                    : isSupabaseConfigured()
+                    ? getSupabaseHost()
+                    : "Belum Dikonfigurasi di Vercel"}
+                </span>
+              </span>
+            </div>
           </div>
         </div>
       </div>

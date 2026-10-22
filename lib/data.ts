@@ -403,21 +403,34 @@ export const AdminService = {
     return data;
   },
 
-  async login(email: string, password?: string): Promise<AdminAccount | null> {
+  async login(
+    email: string,
+    password?: string
+  ): Promise<{ data: AdminAccount | null; error?: string }> {
     const cleanEmail = email.trim().toLowerCase();
     const { data, error } = await supabase
       .from("admins")
       .select("*")
       .eq("email", cleanEmail)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      console.error("Supabase Admin login error:", error.message, error);
-      return null;
+      console.error("Supabase Admin login error:", error);
+      return {
+        data: null,
+        error: `Database Error: ${error.message} (${error.code || "unknown"})`,
+      };
     }
-    if (!data) return null;
-    if (password && data.password && data.password !== password) return null;
-    return data;
+    if (!data) {
+      return {
+        data: null,
+        error: `Email '${cleanEmail}' tidak ditemukan di tabel 'admins'. Pastikan skema SQL sudah di-Run di Supabase.`,
+      };
+    }
+    if (password && data.password && data.password !== password) {
+      return { data: null, error: "Kata sandi salah. Silakan periksa kembali." };
+    }
+    return { data, error: undefined };
   },
 };
 
@@ -464,21 +477,31 @@ export const StudentService = {
   async login(
     nisn: string,
     password?: string
-  ): Promise<StudentAccount | null> {
+  ): Promise<{ data: StudentAccount | null; error?: string }> {
     const cleanNisn = nisn.trim();
     const { data, error } = await supabase
       .from("siswa")
       .select("*")
       .eq("nisn", cleanNisn)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      console.error("Supabase Siswa login error:", error.message, error);
-      return null;
+      console.error("Supabase Siswa login error:", error);
+      return {
+        data: null,
+        error: `Database Error: ${error.message} (${error.code || "unknown"})`,
+      };
     }
-    if (!data) return null;
-    if (password && data.password && data.password !== password) return null;
-    return data;
+    if (!data) {
+      return {
+        data: null,
+        error: `NISN '${cleanNisn}' tidak terdaftar di tabel 'siswa'.`,
+      };
+    }
+    if (password && data.password && data.password !== password) {
+      return { data: null, error: "Kata sandi / PIN salah." };
+    }
+    return { data, error: undefined };
   },
 };
 
