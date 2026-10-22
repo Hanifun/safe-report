@@ -170,15 +170,14 @@ export default function StudentDashboardPage() {
                         {item.kode_pelacak}
                       </span>
                       <span
-                        className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${
-                          item.status === "baru"
+                        className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${item.status === "baru"
                             ? "badge-baru"
                             : item.status === "diverifikasi"
-                            ? "badge-verifikasi"
-                            : item.status === "diproses"
-                            ? "badge-proses"
-                            : "badge-selesai"
-                        }`}
+                              ? "badge-verifikasi"
+                              : item.status === "diproses"
+                                ? "badge-proses"
+                                : "badge-selesai"
+                          }`}
                       >
                         {item.status}
                       </span>

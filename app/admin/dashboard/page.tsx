@@ -318,11 +318,10 @@ export default function AdminDashboardPage() {
           <button
             type="button"
             onClick={() => setActiveTab("laporan")}
-            className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === "laporan"
+            className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${activeTab === "laporan"
                 ? "bg-amber-400 text-stone-950 shadow-sm"
                 : "bg-white text-stone-600 hover:bg-stone-50"
-            }`}
+              }`}
           >
             <MessageSquare className="w-4 h-4" />
             Daftar Pengaduan ({laporanList.length})
@@ -330,11 +329,10 @@ export default function AdminDashboardPage() {
           <button
             type="button"
             onClick={() => setActiveTab("siswa")}
-            className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === "siswa"
+            className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${activeTab === "siswa"
                 ? "bg-amber-400 text-stone-950 shadow-sm"
                 : "bg-white text-stone-600 hover:bg-stone-50"
-            }`}
+              }`}
           >
             <Users className="w-4 h-4" />
             Kelola Akun Siswa ({students.length})
@@ -471,15 +469,14 @@ export default function AdminDashboardPage() {
                         </td>
                         <td className="py-3.5 px-4">
                           <span
-                            className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${
-                              item.status === "baru"
+                            className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${item.status === "baru"
                                 ? "badge-baru"
                                 : item.status === "diverifikasi"
-                                ? "badge-verifikasi"
-                                : item.status === "diproses"
-                                ? "badge-proses"
-                                : "badge-selesai"
-                            }`}
+                                  ? "badge-verifikasi"
+                                  : item.status === "diproses"
+                                    ? "badge-proses"
+                                    : "badge-selesai"
+                              }`}
                           >
                             {item.status}
                           </span>
@@ -842,11 +839,10 @@ export default function AdminDashboardPage() {
                       key={st}
                       type="button"
                       onClick={() => handleChangeStatus(activeLaporan.id, st)}
-                      className={`py-2 px-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer ${
-                        activeLaporan.status === st
+                      className={`py-2 px-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer ${activeLaporan.status === st
                           ? "bg-amber-400 text-stone-950 shadow-xs"
                           : "bg-stone-100 hover:bg-stone-200 text-stone-600"
-                      }`}
+                        }`}
                     >
                       {st}
                     </button>

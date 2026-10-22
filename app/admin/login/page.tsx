@@ -96,7 +96,7 @@ export default function AdminLoginPage() {
       if (!admin) {
         RateLimiter.record("admin_login_attempt");
         setLoginError("Email atau kata sandi tidak cocok. Silakan periksa kembali.");
-      toast("Email atau kata sandi admin tidak cocok.", "error");
+        toast("Email atau kata sandi admin tidak cocok.", "error");
         setIsLoading(false);
         return;
       }
@@ -152,11 +152,10 @@ export default function AdminLoginPage() {
                   placeholder="nama@sekolah.id"
                   value={loginEmail}
                   onChange={(e) => handleEmailChange(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-2.5 rounded-2xl bg-stone-900 border text-white text-xs sm:text-sm placeholder:text-stone-600 focus:outline-none transition-colors ${
-                    emailError
+                  className={`w-full pl-10 pr-4 py-2.5 rounded-2xl bg-stone-900 border text-white text-xs sm:text-sm placeholder:text-stone-600 focus:outline-none transition-colors ${emailError
                       ? "border-rose-500 focus:ring-2 focus:ring-rose-500/50"
                       : "border-stone-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/30"
-                  }`}
+                    }`}
                 />
               </div>
               {emailError && (
@@ -181,11 +180,10 @@ export default function AdminLoginPage() {
                   placeholder="Masukkan kata sandi"
                   value={loginPassword}
                   onChange={(e) => handlePasswordChange(e.target.value)}
-                  className={`w-full pl-10 pr-10 py-2.5 rounded-2xl bg-stone-900 border text-white text-xs sm:text-sm placeholder:text-stone-600 focus:outline-none transition-colors ${
-                    passwordError
+                  className={`w-full pl-10 pr-10 py-2.5 rounded-2xl bg-stone-900 border text-white text-xs sm:text-sm placeholder:text-stone-600 focus:outline-none transition-colors ${passwordError
                       ? "border-rose-500 focus:ring-2 focus:ring-rose-500/50"
                       : "border-stone-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/30"
-                  }`}
+                    }`}
                 />
                 <button
                   type="button"

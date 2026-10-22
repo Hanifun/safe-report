@@ -203,15 +203,14 @@ function StatusContent() {
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span
-                      className={`inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                        laporan.status === "baru"
+                      className={`inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${laporan.status === "baru"
                           ? "badge-baru"
                           : laporan.status === "diverifikasi"
-                          ? "badge-verifikasi"
-                          : laporan.status === "diproses"
-                          ? "badge-proses"
-                          : "badge-selesai"
-                      }`}
+                            ? "badge-verifikasi"
+                            : laporan.status === "diproses"
+                              ? "badge-proses"
+                              : "badge-selesai"
+                        }`}
                     >
                       Status: {laporan.status}
                     </span>
