@@ -1447,12 +1447,12 @@ export default function AdminDashboardPage() {
                         <Smartphone className="w-4.5 h-4.5 text-sky-600" />
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-stone-900">Buka Bot Telegram</div>
-                        <div className="text-[11px] text-stone-500">Klik untuk membuka bot SafeReport di Telegram</div>
+                        <div className="text-xs font-bold text-stone-900">Link Grub Tim Telegram</div>
+                        <div className="text-[11px] text-stone-500">Klik untuk membuka link Grub</div>
                       </div>
                     </div>
                     <a
-                      href="https://t.me/SafeReportBot"
+                      href="https://t.me/+wGWT0YJmt5EwOGJl"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white transition-colors shrink-0"
