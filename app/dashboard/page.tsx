@@ -13,10 +13,17 @@ import {
   ChevronRight,
   Inbox,
   ArrowRight,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Lock,
+  CheckCircle2,
+  AlertCircle,
+  X,
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { AuthService, LaporanService } from "@/lib/data";
+import { AuthService, LaporanService, StudentService } from "@/lib/data";
 import { formatTanggal } from "@/lib/utils";
 import { Laporan, Profile } from "@/types";
 import { useToast } from "@/components/ToastProvider";
@@ -27,6 +34,17 @@ export default function StudentDashboardPage() {
   const [user, setUser] = useState<Profile | null>(null);
   const [laporanList, setLaporanList] = useState<Laporan[]>([]);
   const [searchKode, setSearchKode] = useState("");
+
+  // State Ganti Kata Sandi Siswa
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordLama, setPasswordLama] = useState("");
+  const [passwordBaru, setPasswordBaru] = useState("");
+  const [passwordKonfirmasi, setPasswordKonfirmasi] = useState("");
+  const [showPassLama, setShowPassLama] = useState(false);
+  const [showPassBaru, setShowPassBaru] = useState(false);
+  const [showPassKonfirmasi, setShowPassKonfirmasi] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
   useEffect(() => {
     const checkSession = () => {
@@ -64,6 +82,63 @@ export default function StudentDashboardPage() {
       window.removeEventListener("storage", handleStorageChange);
     };
   }, [router]);
+
+  const handleOpenPasswordModal = () => {
+    setPasswordLama("");
+    setPasswordBaru("");
+    setPasswordKonfirmasi("");
+    setPasswordError(null);
+    setShowPassLama(false);
+    setShowPassBaru(false);
+    setShowPassKonfirmasi(false);
+    setShowPasswordModal(true);
+  };
+
+  const handleSimpanPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+
+    if (!user) return;
+
+    if (!passwordLama.trim()) {
+      setPasswordError("Masukkan kata sandi akun saat ini.");
+      return;
+    }
+    if (!passwordBaru.trim() || passwordBaru.trim().length < 6) {
+      setPasswordError("Kata sandi baru minimal harus 6 karakter.");
+      return;
+    }
+    if (passwordBaru !== passwordKonfirmasi) {
+      setPasswordError("Konfirmasi kata sandi baru tidak sesuai.");
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    try {
+      const res = await StudentService.updatePassword(
+        user.id,
+        passwordBaru.trim(),
+        passwordLama.trim()
+      );
+
+      if (!res.success) {
+        setPasswordError(res.error || "Gagal memperbarui kata sandi.");
+        return;
+      }
+
+      toast("Kata sandi Anda berhasil diperbarui! Silakan gunakan sandi baru untuk login selanjutnya.", "success");
+      setShowPasswordModal(false);
+      setPasswordLama("");
+      setPasswordBaru("");
+      setPasswordKonfirmasi("");
+    } catch (err: unknown) {
+      setPasswordError(
+        err instanceof Error ? err.message : "Terjadi kesalahan pada sistem."
+      );
+    } finally {
+      setIsUpdatingPassword(false);
+    }
+  };
 
   const handleLogout = async () => {
     const ok = await confirmModal({
@@ -113,13 +188,20 @@ export default function StudentDashboardPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Link
               href="/dashboard/lapor"
               className="btn-primary bg-stone-900 hover:bg-stone-800 text-white shadow-none text-xs sm:text-sm font-bold cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" /> Buat Aduan Baru
             </Link>
+            <button
+              onClick={handleOpenPasswordModal}
+              className="btn-secondary bg-white/90 hover:bg-white text-stone-900 border-none text-xs sm:text-sm font-bold cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              title="Ganti kata sandi akun siswa"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-amber-700" /> Ganti Sandi
+            </button>
             <button
               onClick={handleLogout}
               className="btn-secondary bg-white hover:bg-stone-50 text-stone-800 border-none text-xs sm:text-sm font-bold cursor-pointer"
@@ -227,6 +309,139 @@ export default function StudentDashboardPage() {
             </div>
           )}
         </div>
+
+        {/* Modal Ganti Kata Sandi Siswa */}
+        {showPasswordModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+            <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-stone-200 animate-pop-in overflow-hidden">
+              {/* Header Modal */}
+              <div className="px-6 py-4 bg-stone-900 text-white flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-amber-400 text-stone-900 flex items-center justify-center font-bold">
+                    <KeyRound className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-white">
+                      Ganti Kata Sandi Akun
+                    </h3>
+                    <p className="text-[11px] text-stone-300">
+                      Perbarui kata sandi untuk keamanan akun Anda
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowPasswordModal(false)}
+                  className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Form Input */}
+              <form onSubmit={handleSimpanPassword} className="p-6 space-y-4">
+                {passwordError && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{passwordError}</span>
+                  </div>
+                )}
+
+                {/* Sandi Saat Ini */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-stone-400" /> Kata Sandi Saat Ini
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassLama ? "text" : "password"}
+                      value={passwordLama}
+                      onChange={(e) => setPasswordLama(e.target.value)}
+                      placeholder="Masukkan kata sandi lama Anda"
+                      className="input pr-10 text-xs sm:text-sm"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassLama(!showPassLama)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                    >
+                      {showPassLama ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sandi Baru */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-amber-600" /> Kata Sandi Baru
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassBaru ? "text" : "password"}
+                      value={passwordBaru}
+                      onChange={(e) => setPasswordBaru(e.target.value)}
+                      placeholder="Minimal 6 karakter"
+                      className="input pr-10 text-xs sm:text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassBaru(!showPassBaru)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                    >
+                      {showPassBaru ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Konfirmasi Sandi Baru */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Ulangi Kata Sandi Baru
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassKonfirmasi ? "text" : "password"}
+                      value={passwordKonfirmasi}
+                      onChange={(e) => setPasswordKonfirmasi(e.target.value)}
+                      placeholder="Ketik ulang kata sandi baru"
+                      className="input pr-10 text-xs sm:text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassKonfirmasi(!showPassKonfirmasi)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                    >
+                      {showPassKonfirmasi ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200/80 text-[11px] text-amber-900 leading-relaxed">
+                  💡 <b>Tips:</b> Gunakan kombinasi huruf dan angka agar akun pengaduan Anda tidak mudah diakses oleh orang lain.
+                </div>
+
+                {/* Action Buttons */}
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordModal(false)}
+                    disabled={isUpdatingPassword}
+                    className="btn-secondary text-xs px-4 py-2.5 font-bold cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingPassword}
+                    className="btn-primary text-xs px-5 py-2.5 font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    {isUpdatingPassword ? "Menyimpan..." : "Simpan Sandi Baru"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </main>
 
       <Footer />

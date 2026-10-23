@@ -855,6 +855,58 @@ export const StudentService = {
     }
     return { data, error: undefined };
   },
+
+  async updatePassword(
+    studentId: string,
+    newPassword: string,
+    oldPassword?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const cleanNewPass = newPassword.trim();
+    if (!cleanNewPass || cleanNewPass.length < 6) {
+      return { success: false, error: "Kata sandi baru minimal 6 karakter." };
+    }
+
+    if (!isSupabaseConfigured()) {
+      const list = getLocalSiswa();
+      const idx = list.findIndex((s) => s.id === studentId);
+      if (idx !== -1) {
+        if (oldPassword && list[idx].password && list[idx].password !== oldPassword.trim()) {
+          return { success: false, error: "Kata sandi lama salah." };
+        }
+        list[idx].password = cleanNewPass;
+        setLocalSiswa(list);
+      }
+      return { success: true };
+    }
+
+    if (oldPassword) {
+      const { data: currentStudent, error: fetchErr } = await supabase
+        .from("siswa")
+        .select("password")
+        .eq("id", studentId)
+        .maybeSingle();
+
+      if (fetchErr || !currentStudent) {
+        return { success: false, error: "Akun siswa tidak ditemukan." };
+      }
+
+      if (currentStudent.password && currentStudent.password !== oldPassword.trim()) {
+        return { success: false, error: "Kata sandi saat ini tidak cocok." };
+      }
+    }
+
+    const { error } = await supabase
+      .from("siswa")
+      .update({ password: cleanNewPass })
+      .eq("id", studentId);
+
+    if (error) {
+      console.error("Gagal update password siswa:", error);
+      return { success: false, error: "Gagal memperbarui kata sandi di server. Silakan coba lagi." };
+    }
+
+    return { success: true };
+  },
 };
 
 // =====================================================

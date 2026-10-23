@@ -117,6 +117,57 @@ export default function AdminDashboardPage() {
     chatIdMasked: string;
   } | null>(null);
 
+  // State Modal Reset / Ganti Kata Sandi Siswa oleh Admin
+  const [selectedStudentForPassword, setSelectedStudentForPassword] = useState<StudentAccount | null>(null);
+  const [newStudentPassword, setNewStudentPassword] = useState("");
+  const [showStudentPasswordInput, setShowStudentPasswordInput] = useState(false);
+  const [isSavingStudentPassword, setIsSavingStudentPassword] = useState(false);
+  const [studentPasswordError, setStudentPasswordError] = useState<string | null>(null);
+
+  const handleSaveStudentPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStudentForPassword) return;
+
+    if (!newStudentPassword.trim() || newStudentPassword.trim().length < 6) {
+      setStudentPasswordError("Kata sandi baru minimal 6 karakter.");
+      return;
+    }
+
+    setIsSavingStudentPassword(true);
+    setStudentPasswordError(null);
+    try {
+      const res = await StudentService.updatePassword(
+        selectedStudentForPassword.id,
+        newStudentPassword.trim()
+      );
+      if (!res.success) {
+        setStudentPasswordError(res.error || "Gagal memperbarui kata sandi siswa.");
+        return;
+      }
+
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === selectedStudentForPassword.id
+            ? { ...s, password: newStudentPassword.trim() }
+            : s
+        )
+      );
+
+      toast(
+        `Kata sandi akun siswa "${selectedStudentForPassword.nama}" berhasil diubah!`,
+        "success"
+      );
+      setSelectedStudentForPassword(null);
+      setNewStudentPassword("");
+    } catch (err: unknown) {
+      setStudentPasswordError(
+        err instanceof Error ? err.message : "Terjadi kesalahan sistem."
+      );
+    } finally {
+      setIsSavingStudentPassword(false);
+    }
+  };
+
   // Buka modal pengaturan dan muat data terkini
   const openSettingsModal = () => {
     // Reset semua state perubahan
@@ -920,13 +971,27 @@ export default function AdminDashboardPage() {
                           {formatTanggal(st.created_at)}
                         </td>
                         <td className="py-3.5 px-4 text-right">
-                          <button
-                            onClick={() => handleHapusSiswa(st.id, st.nama)}
-                            className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                            title="Hapus akun siswa"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => {
+                                setSelectedStudentForPassword(st);
+                                setNewStudentPassword("");
+                                setShowStudentPasswordInput(false);
+                                setStudentPasswordError(null);
+                              }}
+                              className="p-1.5 rounded-lg text-amber-600 hover:text-amber-800 hover:bg-amber-50 transition-colors cursor-pointer"
+                              title="Ganti / Reset kata sandi siswa"
+                            >
+                              <KeyRound className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleHapusSiswa(st.id, st.nama)}
+                              className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="Hapus akun siswa"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1534,6 +1599,114 @@ export default function AdminDashboardPage() {
                 Tutup
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Reset Kata Sandi Siswa oleh Admin */}
+      {selectedStudentForPassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-stone-200 animate-pop-in overflow-hidden">
+            {/* Header Modal */}
+            <div className="px-6 py-4 bg-stone-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-400 text-stone-900 flex items-center justify-center font-bold">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-white">
+                    Ganti Kata Sandi Siswa
+                  </h3>
+                  <p className="text-[11px] text-stone-300">
+                    Reset kata sandi untuk akun siswa ini
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedStudentForPassword(null);
+                  setNewStudentPassword("");
+                  setStudentPasswordError(null);
+                }}
+                className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Info Siswa */}
+            <div className="px-6 pt-5 pb-2">
+              <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-xs space-y-1">
+                <div className="font-bold text-stone-900 text-sm">
+                  {selectedStudentForPassword.nama}
+                </div>
+                <div className="flex items-center gap-2 text-stone-600 font-mono text-[11px]">
+                  <span>NISN: <b>{selectedStudentForPassword.nisn}</b></span>
+                  <span>•</span>
+                  <span>Kelas: <b>{selectedStudentForPassword.kelas}</b></span>
+                </div>
+              </div>
+            </div>
+
+            {/* Form Input */}
+            <form onSubmit={handleSaveStudentPassword} className="p-6 pt-3 space-y-4">
+              {studentPasswordError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{studentPasswordError}</span>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-stone-400" /> Kata Sandi Baru
+                </label>
+                <div className="relative">
+                  <input
+                    type={showStudentPasswordInput ? "text" : "password"}
+                    value={newStudentPassword}
+                    onChange={(e) => setNewStudentPassword(e.target.value)}
+                    placeholder="Masukkan sandi baru (min. 6 karakter)"
+                    className="input pr-10 text-xs sm:text-sm font-mono"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowStudentPasswordInput(!showStudentPasswordInput)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                  >
+                    {showStudentPasswordInput ? <EyeOff className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-stone-400">
+                  Default awal kata sandi siswa adalah <code className="bg-stone-100 px-1 py-0.5 rounded font-bold">123456</code>.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedStudentForPassword(null);
+                    setNewStudentPassword("");
+                    setStudentPasswordError(null);
+                  }}
+                  disabled={isSavingStudentPassword}
+                  className="btn-secondary text-xs px-4 py-2.5 font-bold cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingStudentPassword || !newStudentPassword.trim()}
+                  className="btn-primary text-xs px-5 py-2.5 font-bold cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingStudentPassword ? "Menyimpan..." : "Simpan Sandi Baru"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
