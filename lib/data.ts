@@ -27,7 +27,7 @@ import {
   validateUploadedFile,
   verifySessionSignature,
 } from "./security";
-import { supabase } from "./supabase";
+import { supabase, isSupabaseConfigured } from "./supabase";
 
 // Helper pembersih istilah Guru BK / Bimbingan Konseling
 export function cleanAdminText(text: string): string {
@@ -40,10 +40,105 @@ export function cleanAdminText(text: string): string {
 }
 
 // =====================================================
+// FALLBACK STORAGE LOKAL (JIKA SUPABASE BELUM DIHUBUNGKAN)
+// Memungkinkan pengujian menyeluruh di localhost tanpa diblokir
+// =====================================================
+const MOCK_STORAGE_LAPORAN = "safereport_mock_laporan";
+const MOCK_STORAGE_SISWA = "safereport_mock_siswa";
+const MOCK_STORAGE_KELAS = "safereport_mock_kelas";
+
+function getLocalLaporan(): Laporan[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(MOCK_STORAGE_LAPORAN);
+    if (raw) {
+      const parsed: Laporan[] = JSON.parse(raw);
+      // Bersihkan dummy demo mock lama jika ada agar data awal benar-benar nol
+      const cleaned = parsed.filter((l) => l.id !== "mock-1" && l.id !== "mock-2");
+      if (cleaned.length !== parsed.length) {
+        localStorage.setItem(MOCK_STORAGE_LAPORAN, JSON.stringify(cleaned));
+      }
+      return cleaned;
+    }
+    const initial: Laporan[] = [];
+    localStorage.setItem(MOCK_STORAGE_LAPORAN, JSON.stringify(initial));
+    return initial;
+  } catch {
+    return [];
+  }
+}
+
+function setLocalLaporan(list: Laporan[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(MOCK_STORAGE_LAPORAN, JSON.stringify(list));
+  } catch {
+    // ignore
+  }
+}
+
+function getLocalSiswa(): StudentAccount[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(MOCK_STORAGE_SISWA);
+    if (raw) {
+      const parsed: StudentAccount[] = JSON.parse(raw);
+      const cleaned = parsed.filter(
+        (s) => s.id !== "demo-siswa-1" && s.id !== "demo-siswa-2"
+      );
+      if (cleaned.length !== parsed.length) {
+        localStorage.setItem(MOCK_STORAGE_SISWA, JSON.stringify(cleaned));
+      }
+      return cleaned;
+    }
+    const initial: StudentAccount[] = [];
+    localStorage.setItem(MOCK_STORAGE_SISWA, JSON.stringify(initial));
+    return initial;
+  } catch {
+    return [];
+  }
+}
+
+function setLocalSiswa(list: StudentAccount[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(MOCK_STORAGE_SISWA, JSON.stringify(list));
+  } catch {
+    // ignore
+  }
+}
+
+function getLocalKelas(): string[] {
+  if (typeof window === "undefined")
+    return ["X MIPA 1", "X MIPA 2", "X IPS 1", "XI MIPA 1", "XI IPS 1", "XII MIPA 1", "XII IPS 1"];
+  try {
+    const raw = localStorage.getItem(MOCK_STORAGE_KELAS);
+    if (raw) return JSON.parse(raw);
+    const initial = ["X MIPA 1", "X MIPA 2", "X IPS 1", "XI MIPA 1", "XI IPS 1", "XII MIPA 1", "XII IPS 1"];
+    localStorage.setItem(MOCK_STORAGE_KELAS, JSON.stringify(initial));
+    return initial;
+  } catch {
+    return ["X MIPA 1", "X MIPA 2", "X IPS 1", "XI MIPA 1", "XI IPS 1", "XII MIPA 1", "XII IPS 1"];
+  }
+}
+
+function setLocalKelas(list: string[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(MOCK_STORAGE_KELAS, JSON.stringify(list));
+  } catch {
+    // ignore
+  }
+}
+
+// =====================================================
 // 1. SERVICE: LAPORAN (PENGADUAN)
 // =====================================================
 export const LaporanService = {
   async getAll(): Promise<Laporan[]> {
+    if (!isSupabaseConfigured()) {
+      return getLocalLaporan();
+    }
     const { data, error } = await supabase
       .from("laporan")
       .select(
@@ -86,6 +181,9 @@ export const LaporanService = {
 
   async getByKode(kode: string): Promise<Laporan | null> {
     const clean = kode.trim().toUpperCase();
+    if (!isSupabaseConfigured()) {
+      return getLocalLaporan().find((l) => l.kode_pelacak === clean) || null;
+    }
     const { data, error } = await supabase
       .from("laporan")
       .select(
@@ -125,6 +223,9 @@ export const LaporanService = {
   },
 
   async getByPelaporId(pelaporId: string): Promise<Laporan[]> {
+    if (!isSupabaseConfigured()) {
+      return getLocalLaporan().filter((l) => l.pelapor_id === pelaporId);
+    }
     const { data, error } = await supabase
       .from("laporan")
       .select(
@@ -206,7 +307,63 @@ export const LaporanService = {
       );
     }
 
-    // 4. Upload Bukti ke Supabase Storage
+    // 4. Fallback Mode Demo (Lokal) jika Supabase belum disetel
+    if (!isSupabaseConfigured()) {
+      const isSiswaIdentity = data.mode_identitas === "siswa" && Boolean(user);
+      const isAnonim = !isSiswaIdentity;
+      const kode = generateKodePelacak("SF");
+      const newLaporan: Laporan = {
+        id: `mock-${Date.now()}`,
+        kode_pelacak: kode,
+        is_anonim: isAnonim,
+        pelapor_id: isSiswaIdentity && user ? user.id : null,
+        nama_pelapor:
+          isSiswaIdentity && user
+            ? `${user.nama} (${user.nisn_kelas ?? "Siswa"})`
+            : null,
+        kontak_opsional: cleanKontak || null,
+        peran_pelapor: data.peran_pelapor,
+        kategori: data.kategori,
+        nama_pelaku: cleanNamaPelaku || null,
+        lokasi: cleanLokasi,
+        tanggal_kejadian: data.tanggal_kejadian,
+        deskripsi: cleanDeskripsi,
+        bukti: [],
+        status: "baru",
+        tindak_lanjut: [
+          {
+            id: `tl-${Date.now()}`,
+            laporan_id: `mock-${Date.now()}`,
+            pesan:
+              "Laporan telah diterima oleh sistem dan menunggu peninjauan tim Admin.",
+            oleh_nama: "Sistem SafeReport",
+            is_publik: true,
+            created_at: new Date().toISOString(),
+          },
+        ],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setLocalLaporan([newLaporan, ...getLocalLaporan()]);
+
+      // Kirim notifikasi Telegram ke Tim / Grup jika bot aktif
+      try {
+        import("@/lib/telegram").then(({ sendTelegramNewLaporan }) => {
+          sendTelegramNewLaporan(newLaporan).catch(() => {});
+        });
+        if (typeof window !== "undefined") {
+          fetch("/api/telegram-notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newLaporan),
+          }).catch(() => {});
+        }
+      } catch {}
+
+      return newLaporan;
+    }
+
+    // 5. Upload Bukti ke Supabase Storage
     const buktiList: BuktiFile[] = [];
     if (data.bukti_files && data.bukti_files.length > 0) {
       if (data.bukti_files.length > 3) {
@@ -350,6 +507,39 @@ export const LaporanService = {
     // Catat ke RateLimiter
     RateLimiter.record("kirim_laporan");
 
+    // 8. Kirim notifikasi Telegram ke Admin (jika bot aktif) secara non-blocking
+    try {
+      import("@/lib/telegram").then(({ sendTelegramNewLaporan }) => {
+        sendTelegramNewLaporan({
+          kode_pelacak: laporanRow.kode_pelacak,
+          kategori: laporanRow.kategori,
+          lokasi: laporanRow.lokasi,
+          tanggal_kejadian: laporanRow.tanggal_kejadian,
+          deskripsi: laporanRow.deskripsi,
+          is_anonim: laporanRow.is_anonim,
+          nama_pelapor: laporanRow.nama_pelapor,
+        }).catch(() => {});
+      });
+
+      if (typeof window !== "undefined") {
+        fetch("/api/telegram-notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kode_pelacak: laporanRow.kode_pelacak,
+            kategori: laporanRow.kategori,
+            lokasi: laporanRow.lokasi,
+            tanggal_kejadian: laporanRow.tanggal_kejadian,
+            deskripsi: laporanRow.deskripsi,
+            is_anonim: laporanRow.is_anonim,
+            nama_pelapor: laporanRow.nama_pelapor,
+          }),
+        }).catch(() => {});
+      }
+    } catch {
+      // Abaikan error agar laporan siswa tetap sukses tersimpan
+    }
+
     return {
       id: laporanRow.id,
       kode_pelacak: laporanRow.kode_pelacak,
@@ -372,6 +562,13 @@ export const LaporanService = {
   },
 
   async updateStatus(id: string, status: StatusLaporan): Promise<boolean> {
+    if (!isSupabaseConfigured()) {
+      const list = getLocalLaporan().map((l) =>
+        l.id === id ? { ...l, status, updated_at: new Date().toISOString() } : l
+      );
+      setLocalLaporan(list);
+      return true;
+    }
     const { error } = await supabase
       .from("laporan")
       .update({ status, updated_at: new Date().toISOString() })
@@ -384,6 +581,27 @@ export const LaporanService = {
     pesan: string,
     adminNama: string
   ): Promise<TindakLanjut | null> {
+    if (!isSupabaseConfigured()) {
+      const newTL: TindakLanjut = {
+        id: `tl-${Date.now()}`,
+        laporan_id: laporanId,
+        pesan: pesan.trim(),
+        oleh_nama: adminNama,
+        is_publik: true,
+        created_at: new Date().toISOString(),
+      };
+      const list = getLocalLaporan().map((l) =>
+        l.id === laporanId
+          ? {
+              ...l,
+              tindak_lanjut: [...(l.tindak_lanjut ?? []), newTL],
+              updated_at: new Date().toISOString(),
+            }
+          : l
+      );
+      setLocalLaporan(list);
+      return newTL;
+    }
     const { data, error } = await supabase
       .from("tindak_lanjut")
       .insert({
@@ -407,11 +625,19 @@ export const LaporanService = {
   },
 
   async delete(id: string): Promise<boolean> {
+    if (!isSupabaseConfigured()) {
+      setLocalLaporan(getLocalLaporan().filter((l) => l.id !== id));
+      return true;
+    }
     const { error } = await supabase.from("laporan").delete().eq("id", id);
     return !error;
   },
 
   async deleteAll(): Promise<void> {
+    if (!isSupabaseConfigured()) {
+      setLocalLaporan([]);
+      return;
+    }
     await supabase.from("laporan").delete().neq("id", "00000000-0000-0000-0000-000000000000");
   },
 };
@@ -421,6 +647,17 @@ export const LaporanService = {
 // ==========================================
 export const AdminService = {
   async getAll(): Promise<AdminAccount[]> {
+    if (!isSupabaseConfigured()) {
+      return [
+        {
+          id: "demo-admin-id",
+          nama: "Administrator Sekolah (Mode Demo)",
+          email: "admin@sekolah.id",
+          nip_jabatan: "Administrator",
+          created_at: new Date().toISOString(),
+        },
+      ];
+    }
     const { data, error } = await supabase
       .from("admins")
       .select("*")
@@ -453,6 +690,17 @@ export const AdminService = {
     password?: string
   ): Promise<{ data: AdminAccount | null; error?: string }> {
     const cleanEmail = email.trim().toLowerCase();
+    if (!isSupabaseConfigured()) {
+      return {
+        data: {
+          id: "demo-admin-id",
+          nama: "Administrator Sekolah (Mode Demo)",
+          email: cleanEmail || "admin@sekolah.id",
+          nip_jabatan: "Administrator",
+          created_at: new Date().toISOString(),
+        },
+      };
+    }
     const { data, error } = await supabase
       .from("admins")
       .select("*")
@@ -477,6 +725,33 @@ export const AdminService = {
     }
     return { data, error: undefined };
   },
+
+  async updateCredentials(
+    adminId: string,
+    updates: { email?: string; password?: string }
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!isSupabaseConfigured()) {
+      return { success: true };
+    }
+    if (!updates.email && !updates.password) {
+      return { success: false, error: "Tidak ada perubahan yang disimpan." };
+    }
+
+    const payload: Record<string, string> = {};
+    if (updates.email) payload.email = updates.email.trim().toLowerCase();
+    if (updates.password) payload.password = updates.password.trim();
+
+    const { error } = await supabase
+      .from("admins")
+      .update(payload)
+      .eq("id", adminId);
+
+    if (error) {
+      console.error("Update credentials error:", error);
+      return { success: false, error: "Gagal menyimpan perubahan. Coba lagi." };
+    }
+    return { success: true };
+  },
 };
 
 // ==========================================
@@ -484,6 +759,9 @@ export const AdminService = {
 // ==========================================
 export const StudentService = {
   async getAll(): Promise<StudentAccount[]> {
+    if (!isSupabaseConfigured()) {
+      return getLocalSiswa();
+    }
     const { data, error } = await supabase
       .from("siswa")
       .select("*")
@@ -499,6 +777,17 @@ export const StudentService = {
     kelas: string;
     password?: string;
   }): Promise<StudentAccount> {
+    if (!isSupabaseConfigured()) {
+      const newS: StudentAccount = {
+        id: `siswa-${Date.now()}`,
+        nama: dataInput.nama.trim(),
+        nisn: dataInput.nisn.trim(),
+        kelas: dataInput.kelas.trim(),
+        created_at: new Date().toISOString(),
+      };
+      setLocalSiswa([newS, ...getLocalSiswa()]);
+      return newS;
+    }
     const { data, error } = await supabase
       .from("siswa")
       .insert({
@@ -515,6 +804,10 @@ export const StudentService = {
   },
 
   async delete(id: string): Promise<boolean> {
+    if (!isSupabaseConfigured()) {
+      setLocalSiswa(getLocalSiswa().filter((s) => s.id !== id));
+      return true;
+    }
     const { error } = await supabase.from("siswa").delete().eq("id", id);
     return !error;
   },
@@ -524,6 +817,20 @@ export const StudentService = {
     password?: string
   ): Promise<{ data: StudentAccount | null; error?: string }> {
     const cleanNisn = nisn.trim();
+    if (!isSupabaseConfigured()) {
+      const list = getLocalSiswa();
+      const found = list.find((s) => s.nisn === cleanNisn);
+      if (found) return { data: found };
+      return {
+        data: {
+          id: "demo-siswa-id",
+          nama: "Ahmad Rizky (Mode Demo)",
+          nisn: cleanNisn || "1234567890",
+          kelas: "XI-IPA 1",
+          created_at: new Date().toISOString(),
+        },
+      };
+    }
     const { data, error } = await supabase
       .from("siswa")
       .select("*")
@@ -624,21 +931,16 @@ export const AuthService = {
 // =====================================================
 export const KelasService = {
   async getAll(): Promise<string[]> {
+    if (!isSupabaseConfigured()) {
+      return getLocalKelas();
+    }
     const { data, error } = await supabase
       .from("kelas")
       .select("nama")
       .order("nama", { ascending: true });
 
     if (error || !data || data.length === 0) {
-      return [
-        "X MIPA 1",
-        "X MIPA 2",
-        "X IPS 1",
-        "XI MIPA 1",
-        "XI IPS 1",
-        "XII MIPA 1",
-        "XII IPS 1",
-      ];
+      return getLocalKelas();
     }
     return data.map((k) => k.nama);
   },
@@ -646,11 +948,22 @@ export const KelasService = {
   async add(nama: string): Promise<boolean> {
     const clean = nama.trim();
     if (!clean) return false;
+    if (!isSupabaseConfigured()) {
+      const list = getLocalKelas();
+      if (!list.includes(clean)) {
+        setLocalKelas([...list, clean]);
+      }
+      return true;
+    }
     const { error } = await supabase.from("kelas").insert({ nama: clean });
     return !error;
   },
 
   async delete(nama: string): Promise<boolean> {
+    if (!isSupabaseConfigured()) {
+      setLocalKelas(getLocalKelas().filter((k) => k !== nama));
+      return true;
+    }
     const { error } = await supabase.from("kelas").delete().eq("nama", nama);
     return !error;
   },

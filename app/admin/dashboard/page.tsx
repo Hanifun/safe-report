@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -25,8 +25,23 @@ import {
   Trash2,
   KeyRound,
   Inbox,
+  Bell,
+  RefreshCw,
+  Settings,
+  Mail,
+  Lock,
+  Eye as EyeIcon,
+  EyeOff,
+  Smartphone,
+  ExternalLink,
 } from "lucide-react";
-import { AuthService, LaporanService, StudentService, KelasService } from "@/lib/data";
+import { AdminService, AuthService, LaporanService, StudentService, KelasService } from "@/lib/data";
+import {
+  getTelegramConfig,
+  saveTelegramConfig,
+  testTelegramConnection,
+} from "@/lib/telegram";
+import { supabase } from "@/lib/supabase";
 import { formatTanggal, formatTanggalWaktu } from "@/lib/utils";
 import { Laporan, Profile, StatusLaporan, StudentAccount } from "@/types";
 import Logo from "@/components/Logo";
@@ -62,6 +77,101 @@ export default function AdminDashboardPage() {
   const [newSiswaPassword, setNewSiswaPassword] = useState("123456");
   const [siswaMsg, setSiswaMsg] = useState<string | null>(null);
 
+  // State Realtime — notifikasi laporan baru
+  const [newLaporanCount, setNewLaporanCount] = useState(0);
+  const laporanCountRef = useRef(0);
+  const isFirstLoad = useRef(true);
+
+  // State Modal Pengaturan Admin (Kredensial & Bot Telegram)
+  const [showKredensialModal, setShowKredensialModal] = useState(false);
+  const [modalTab, setModalTab] = useState<"kredensial" | "telegram">("kredensial");
+
+  // State Ganti Email (mode terpisah)
+  const [isEditingEmail, setIsEditingEmail] = useState(false);
+  const [kredEmail, setKredEmail] = useState("");
+  const [isSavingEmail, setIsSavingEmail] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
+
+  // State Ganti Password (mode terpisah)
+  const [isEditingPassword, setIsEditingPassword] = useState(false);
+  const [kredPasswordLama, setKredPasswordLama] = useState("");
+  const [kredPasswordBaru, setKredPasswordBaru] = useState("");
+  const [kredPasswordKonfirmasi, setKredPasswordKonfirmasi] = useState("");
+  const [showKredPwLama, setShowKredPwLama] = useState(false);
+  const [showKredPwBaru, setShowKredPwBaru] = useState(false);
+  const [showKredPwKonfirmasi, setShowKredPwKonfirmasi] = useState(false);
+  const [isSavingKred, setIsSavingKred] = useState(false);
+  const [kredError, setKredError] = useState<string | null>(null);
+  const [kredSuccess, setKredSuccess] = useState<string | null>(null);
+
+  // State Pengaturan Bot Telegram
+  const [teleBotToken, setTeleBotToken] = useState("");
+  const [teleChatId, setTeleChatId] = useState("");
+  const [teleEnabled, setTeleEnabled] = useState(false);
+  const [teleTesting, setTeleTesting] = useState(false);
+  const [teleTestMsg, setTeleTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [serverTelegramStatus, setServerTelegramStatus] = useState<{
+    configured: boolean;
+    isGroup: boolean;
+    chatIdMasked: string;
+  } | null>(null);
+
+  // Buka modal pengaturan dan muat data terkini
+  const openSettingsModal = () => {
+    // Reset semua state perubahan
+    setIsEditingEmail(false);
+    setIsEditingPassword(false);
+    setKredEmail("");
+    setKredPasswordLama("");
+    setKredPasswordBaru("");
+    setKredPasswordKonfirmasi("");
+    setEmailError(null);
+    setEmailSuccess(null);
+    setKredError(null);
+    setKredSuccess(null);
+
+    const cfg = getTelegramConfig();
+    setTeleBotToken(cfg.botToken);
+    setTeleChatId(cfg.chatId);
+    setTeleEnabled(cfg.isEnabled);
+    setTeleTestMsg(null);
+    setModalTab("kredensial");
+    setShowKredensialModal(true);
+
+    // Periksa apakah server sudah dikonfigurasi melalui .env.local
+    fetch("/api/telegram-notify")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) setServerTelegramStatus(data);
+      })
+      .catch(() => { });
+  };
+
+  // Nada notifikasi ramah saat ada aduan baru masuk
+  const playNotificationSound = () => {
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext })
+          .webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.35);
+    } catch {
+      // Abaikan jika browser membatasi autoplay audio
+    }
+  };
+
   // Muat data awal
   const loadData = async () => {
     setLaporanList(await LaporanService.getAll());
@@ -82,7 +192,9 @@ export default function AdminDashboardPage() {
 
     const isOk = checkSession();
     if (isOk) {
-      loadData();
+      loadData().then(() => {
+        isFirstLoad.current = false;
+      });
     }
 
     // Pemantauan sesi aktif setiap 30 detik untuk keamanan real-time
@@ -96,9 +208,78 @@ export default function AdminDashboardPage() {
     };
     window.addEventListener("storage", handleStorageChange);
 
+    // ===== 1. REALTIME SUPABASE SUBSCRIPTION (INSTAN VIA WEBSOCKET) =====
+    const channel = supabase
+      .channel("realtime-laporan-admin")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "laporan" },
+        (payload) => {
+          LaporanService.getAll().then((list) => {
+            setLaporanList(list);
+            if (payload.eventType === "INSERT") {
+              const newCount = laporanCountRef.current + 1;
+              laporanCountRef.current = newCount;
+              setNewLaporanCount(newCount);
+              playNotificationSound();
+              const newRow = payload.new as
+                | { kode_pelacak?: string; kategori?: string }
+                | undefined;
+              toast(
+                `🔔 Laporan Baru Masuk! ${newRow?.kode_pelacak ? `[${newRow.kode_pelacak}]` : ""
+                } (${newRow?.kategori || "Aduan Baru"})`,
+                "info"
+              );
+            }
+          });
+        }
+      )
+      .subscribe();
+
+    // ===== 2. AUTO-POLLING FALLBACK (SETIAP 10 DETIK) =====
+    // Menjamin auto-refresh data laporan selalu berjalan real-time
+    // bahkan jika Supabase Realtime WebSocket belum diaktifkan di project Supabase
+    let lastKnownLength = -1;
+    const pollInterval = setInterval(async () => {
+      try {
+        const freshList = await LaporanService.getAll();
+        setLaporanList((currentList) => {
+          if (lastKnownLength !== -1 && freshList.length > currentList.length) {
+            const added = freshList.length - currentList.length;
+            const newCount = laporanCountRef.current + added;
+            laporanCountRef.current = newCount;
+            setNewLaporanCount(newCount);
+            playNotificationSound();
+            toast(
+              `🔔 ${added} laporan baru masuk! Daftar otomatis diperbarui.`,
+              "info"
+            );
+            lastKnownLength = freshList.length;
+            return freshList;
+          }
+          lastKnownLength = freshList.length;
+          // Sinkronisasi status jika ada perubahan data tanpa penambahan jumlah
+          const freshSig = freshList
+            .map((l) => `${l.id}-${l.status}-${l.updated_at}`)
+            .join(";");
+          const currSig = currentList
+            .map((l) => `${l.id}-${l.status}-${l.updated_at}`)
+            .join(";");
+          if (freshSig !== currSig) {
+            return freshList;
+          }
+          return currentList;
+        });
+      } catch {
+        // Abaikan kendala jaringan sementara
+      }
+    }, 10000);
+
     return () => {
       clearInterval(interval);
+      clearInterval(pollInterval);
       window.removeEventListener("storage", handleStorageChange);
+      supabase.removeChannel(channel);
     };
   }, [router]);
 
@@ -304,12 +485,45 @@ export default function AdminDashboardPage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {/* Indikator Laporan Baru (Realtime) */}
+            {newLaporanCount > 0 && (
+              <button
+                onClick={() => { setNewLaporanCount(0); laporanCountRef.current = 0; setActiveTab("laporan"); }}
+                className="relative inline-flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 transition-all cursor-pointer shadow-xs animate-pulse"
+                title="Ada laporan baru masuk!"
+              >
+                <Bell className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{newLaporanCount} Laporan Baru</span>
+                <span className="sm:hidden">{newLaporanCount}</span>
+              </button>
+            )}
+
+            {/* Tombol Refresh Manual */}
+            <button
+              onClick={() => loadData()}
+              className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 transition-all cursor-pointer shadow-xs"
+              title="Muat ulang data"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Reload</span>
+            </button>
+
+            {/* Tombol Pengaturan Akun & Notifikasi Admin */}
+            <button
+              onClick={openSettingsModal}
+              className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 transition-all cursor-pointer shadow-xs"
+              title="Pengaturan Akun & Notifikasi Bot Telegram"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Pengaturan</span>
+            </button>
+
             <button
               onClick={handleLogout}
               className="inline-flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-rose-600 hover:text-white text-stone-300 transition-all cursor-pointer shadow-xs"
             >
-              <LogOut className="w-3.5 h-3.5" /> Keluar
+              <LogOut className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Keluar</span>
             </button>
           </div>
         </div>
@@ -323,8 +537,8 @@ export default function AdminDashboardPage() {
             type="button"
             onClick={() => setActiveTab("laporan")}
             className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${activeTab === "laporan"
-                ? "bg-amber-400 text-stone-950 shadow-sm"
-                : "bg-white text-stone-600 hover:bg-stone-50"
+              ? "bg-amber-400 text-stone-950 shadow-sm"
+              : "bg-white text-stone-600 hover:bg-stone-50"
               }`}
           >
             <MessageSquare className="w-4 h-4" />
@@ -334,8 +548,8 @@ export default function AdminDashboardPage() {
             type="button"
             onClick={() => setActiveTab("siswa")}
             className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${activeTab === "siswa"
-                ? "bg-amber-400 text-stone-950 shadow-sm"
-                : "bg-white text-stone-600 hover:bg-stone-50"
+              ? "bg-amber-400 text-stone-950 shadow-sm"
+              : "bg-white text-stone-600 hover:bg-stone-50"
               }`}
           >
             <Users className="w-4 h-4" />
@@ -474,12 +688,12 @@ export default function AdminDashboardPage() {
                         <td className="py-3.5 px-4">
                           <span
                             className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${item.status === "baru"
-                                ? "badge-baru"
-                                : item.status === "diverifikasi"
-                                  ? "badge-verifikasi"
-                                  : item.status === "diproses"
-                                    ? "badge-proses"
-                                    : "badge-selesai"
+                              ? "badge-baru"
+                              : item.status === "diverifikasi"
+                                ? "badge-verifikasi"
+                                : item.status === "diproses"
+                                  ? "badge-proses"
+                                  : "badge-selesai"
                               }`}
                           >
                             {item.status}
@@ -844,8 +1058,8 @@ export default function AdminDashboardPage() {
                       type="button"
                       onClick={() => handleChangeStatus(activeLaporan.id, st)}
                       className={`py-2 px-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer ${activeLaporan.status === st
-                          ? "bg-amber-400 text-stone-950 shadow-xs"
-                          : "bg-stone-100 hover:bg-stone-200 text-stone-600"
+                        ? "bg-amber-400 text-stone-950 shadow-xs"
+                        : "bg-stone-100 hover:bg-stone-200 text-stone-600"
                         }`}
                     >
                       {st}
@@ -912,6 +1126,410 @@ export default function AdminDashboardPage() {
                 type="button"
                 onClick={() => setActiveLaporan(null)}
                 className="btn-secondary text-xs px-4 py-2 font-bold cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Pengaturan Admin: Kredensial & Bot Telegram */}
+      {showKredensialModal && admin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-stone-200 animate-pop-in overflow-hidden">
+            {/* Header Modal */}
+            <div className="px-6 py-4 bg-stone-900 text-white flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-mono text-amber-400 font-bold uppercase tracking-wider">
+                  Pengaturan Admin
+                </div>
+                <h3 className="text-base font-black text-white">
+                  Akun & Notifikasi Laporan
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowKredensialModal(false)}
+                className="p-1 rounded-lg text-stone-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Navigasi Tab Modal */}
+            <div className="flex border-b border-stone-200 bg-stone-50 px-6 pt-2">
+              <button
+                type="button"
+                onClick={() => setModalTab("kredensial")}
+                className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${modalTab === "kredensial"
+                    ? "border-amber-500 text-stone-950 font-black"
+                    : "border-transparent text-stone-500 hover:text-stone-800"
+                  }`}
+              >
+                <KeyRound className="w-3.5 h-3.5" /> Akun & Kata Sandi
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab("telegram")}
+                className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${modalTab === "telegram"
+                    ? "border-amber-500 text-stone-950 font-black"
+                    : "border-transparent text-stone-500 hover:text-stone-800"
+                  }`}
+              >
+                <Users className="w-3.5 h-3.5 text-sky-500" /> Grup Telegram Tim
+                <span className="text-[9px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-bold">
+                  Tim Sekolah
+                </span>
+              </button>
+            </div>
+
+            {/* Tab 1: Akun & Kata Sandi — Tampilan Baru yang Lebih Jelas */}
+            {modalTab === "kredensial" && (
+              <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+
+                {/* ── BLOK: Info Email Saat Ini ── */}
+                <div className="rounded-2xl border border-stone-200 bg-stone-50 overflow-hidden">
+                  <div className="px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                        <Mail className="w-4 h-4 text-amber-700" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Email Admin Saat Ini</div>
+                        <div className="text-sm font-bold text-stone-900 mt-0.5">{admin.email}</div>
+                      </div>
+                    </div>
+                    {!isEditingEmail && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingEmail(true);
+                          setKredEmail("");
+                          setEmailError(null);
+                          setEmailSuccess(null);
+                        }}
+                        className="text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-stone-950 transition-colors cursor-pointer shrink-0"
+                      >
+                        Ganti Email
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Form Ganti Email (tampil saat tombol diklik) */}
+                  {isEditingEmail && (
+                    <div className="px-4 pb-4 pt-1 border-t border-stone-200 space-y-2.5">
+                      <div>
+                        <label className="text-[11px] font-bold text-stone-600 block mb-1">Email Baru</label>
+                        <input
+                          type="email"
+                          autoFocus
+                          placeholder="Masukkan email baru..."
+                          value={kredEmail}
+                          onChange={(e) => { setKredEmail(e.target.value); setEmailError(null); setEmailSuccess(null); }}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                      </div>
+                      {emailError && (
+                        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-semibold">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {emailError}
+                        </div>
+                      )}
+                      {emailSuccess && (
+                        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold">
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> {emailSuccess}
+                        </div>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => { setIsEditingEmail(false); setEmailError(null); setEmailSuccess(null); }}
+                          className="flex-1 py-2 rounded-xl text-xs font-bold border border-stone-200 text-stone-600 hover:bg-stone-100 transition-colors cursor-pointer"
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSavingEmail}
+                          onClick={async () => {
+                            const newEmail = kredEmail.trim();
+                            if (!newEmail) { setEmailError("Email tidak boleh kosong."); return; }
+                            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                            if (!emailRegex.test(newEmail)) { setEmailError("Format email tidak valid."); return; }
+                            if (newEmail === admin.email) { setEmailError("Email baru sama dengan email saat ini."); return; }
+                            setIsSavingEmail(true);
+                            const result = await AdminService.updateCredentials(admin.id, { email: newEmail });
+                            setIsSavingEmail(false);
+                            if (!result.success) { setEmailError(result.error ?? "Gagal menyimpan email."); return; }
+                            const updatedAdmin = { ...admin, email: newEmail };
+                            AuthService.setUser(updatedAdmin);
+                            setAdmin(updatedAdmin);
+                            setEmailSuccess("Email berhasil diperbarui!");
+                            toast("Email admin berhasil diperbarui.", "success");
+                            setTimeout(() => { setIsEditingEmail(false); setEmailSuccess(null); }, 1800);
+                          }}
+                          className="flex-1 py-2 rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-500 text-stone-950 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingEmail ? "Menyimpan..." : "Simpan Email"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── BLOK: Kata Sandi ── */}
+                <div className="rounded-2xl border border-stone-200 bg-stone-50 overflow-hidden">
+                  <div className="px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                        <Lock className="w-4 h-4 text-amber-700" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Kata Sandi</div>
+                        <div className="text-sm font-bold text-stone-900 mt-0.5">••••••••</div>
+                      </div>
+                    </div>
+                    {!isEditingPassword && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditingPassword(true);
+                          setKredPasswordLama("");
+                          setKredPasswordBaru("");
+                          setKredPasswordKonfirmasi("");
+                          setKredError(null);
+                          setKredSuccess(null);
+                        }}
+                        className="text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-stone-950 transition-colors cursor-pointer shrink-0"
+                      >
+                        Ganti Password
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Form Ganti Password (tampil saat tombol diklik) */}
+                  {isEditingPassword && (
+                    <div className="px-4 pb-4 pt-1 border-t border-stone-200 space-y-2.5">
+                      {/* Password Lama */}
+                      <div>
+                        <label className="text-[11px] font-bold text-stone-600 block mb-1">Kata Sandi Saat Ini</label>
+                        <div className="relative">
+                          <input
+                            type={showKredPwLama ? "text" : "password"}
+                            autoFocus
+                            placeholder="Masukkan kata sandi saat ini..."
+                            value={kredPasswordLama}
+                            onChange={(e) => { setKredPasswordLama(e.target.value); setKredError(null); }}
+                            className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-stone-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          />
+                          <button type="button" onClick={() => setShowKredPwLama(!showKredPwLama)} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 cursor-pointer">
+                            {showKredPwLama ? <EyeOff className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                      {/* Password Baru */}
+                      <div>
+                        <label className="text-[11px] font-bold text-stone-600 block mb-1">Kata Sandi Baru</label>
+                        <div className="relative">
+                          <input
+                            type={showKredPwBaru ? "text" : "password"}
+                            placeholder="Masukkan kata sandi baru..."
+                            value={kredPasswordBaru}
+                            onChange={(e) => { setKredPasswordBaru(e.target.value); setKredError(null); }}
+                            className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-stone-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          />
+                          <button type="button" onClick={() => setShowKredPwBaru(!showKredPwBaru)} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 cursor-pointer">
+                            {showKredPwBaru ? <EyeOff className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                      {/* Konfirmasi Password Baru */}
+                      <div>
+                        <label className="text-[11px] font-bold text-stone-600 block mb-1">Konfirmasi Kata Sandi Baru</label>
+                        <div className="relative">
+                          <input
+                            type={showKredPwKonfirmasi ? "text" : "password"}
+                            placeholder="Ulangi kata sandi baru..."
+                            value={kredPasswordKonfirmasi}
+                            onChange={(e) => { setKredPasswordKonfirmasi(e.target.value); setKredError(null); }}
+                            className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-stone-200 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          />
+                          <button type="button" onClick={() => setShowKredPwKonfirmasi(!showKredPwKonfirmasi)} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 cursor-pointer">
+                            {showKredPwKonfirmasi ? <EyeOff className="w-3.5 h-3.5" /> : <EyeIcon className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                      {/* Pesan Error / Sukses */}
+                      {kredError && (
+                        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-semibold">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {kredError}
+                        </div>
+                      )}
+                      {kredSuccess && (
+                        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold">
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> {kredSuccess}
+                        </div>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => { setIsEditingPassword(false); setKredError(null); setKredSuccess(null); }}
+                          className="flex-1 py-2 rounded-xl text-xs font-bold border border-stone-200 text-stone-600 hover:bg-stone-100 transition-colors cursor-pointer"
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSavingKred}
+                          onClick={async () => {
+                            setKredError(null);
+                            setKredSuccess(null);
+                            if (!kredPasswordLama.trim()) { setKredError("Masukkan kata sandi saat ini."); return; }
+                            if (kredPasswordBaru.trim().length < 4) { setKredError("Kata sandi baru minimal 4 karakter."); return; }
+                            if (kredPasswordBaru !== kredPasswordKonfirmasi) { setKredError("Konfirmasi kata sandi tidak cocok."); return; }
+                            const check = await AdminService.login(admin.email ?? "", kredPasswordLama.trim());
+                            if (!check.data) { setKredError("Kata sandi saat ini salah."); return; }
+                            setIsSavingKred(true);
+                            const result = await AdminService.updateCredentials(admin.id, { password: kredPasswordBaru.trim() });
+                            setIsSavingKred(false);
+                            if (!result.success) { setKredError(result.error ?? "Gagal menyimpan kata sandi."); return; }
+                            setKredSuccess("Kata sandi berhasil diperbarui!");
+                            toast("Kata sandi admin berhasil diperbarui.", "success");
+                            setTimeout(() => { setIsEditingPassword(false); setKredSuccess(null); setKredPasswordLama(""); setKredPasswordBaru(""); setKredPasswordKonfirmasi(""); }, 1800);
+                          }}
+                          className="flex-1 py-2 rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-500 text-stone-950 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingKred ? "Menyimpan..." : "Simpan Password"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            )}
+
+            {/* Tab 2: Notifikasi Telegram — Tampilan Ramah Klien Awam */}
+            {modalTab === "telegram" && (
+              <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+
+                {/* ── BLOK: Status Koneksi Grup ── */}
+                {serverTelegramStatus?.configured || (teleEnabled && teleBotToken && teleChatId) ? (
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start gap-3">
+                    <span className="mt-1 w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                    <div>
+                      <div className="text-xs font-black text-emerald-950 uppercase tracking-wider">Notifikasi Telegram: Aktif ✓</div>
+                      <p className="text-[11px] text-emerald-900 leading-relaxed mt-1">
+                        Setiap ada siswa melapor, seluruh tim di Grup Telegram akan langsung mendapatkan notifikasi otomatis.
+                        {serverTelegramStatus?.chatIdMasked && <span className="font-mono ml-1 opacity-70">({serverTelegramStatus.chatIdMasked})</span>}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
+                    <span className="mt-1 w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0"></span>
+                    <div>
+                      <div className="text-xs font-black text-amber-950 uppercase tracking-wider">Notifikasi Telegram: Belum Aktif</div>
+                      <p className="text-[11px] text-amber-900 leading-relaxed mt-1">
+                        Hubungi pengembang untuk menghubungkan bot Telegram ke sistem SafeReport sekolah Anda.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── BLOK: Link ke Bot Telegram ── */}
+                <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
+                  <div className="px-4 py-3 border-b border-stone-100 bg-stone-50">
+                    <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Bot Telegram SafeReport</div>
+                  </div>
+                  <div className="px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-sky-100 flex items-center justify-center shrink-0">
+                        <Smartphone className="w-4.5 h-4.5 text-sky-600" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-stone-900">Buka Bot Telegram</div>
+                        <div className="text-[11px] text-stone-500">Klik untuk membuka bot SafeReport di Telegram</div>
+                      </div>
+                    </div>
+                    <a
+                      href="https://t.me/SafeReportBot"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white transition-colors shrink-0"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" /> Buka di Telegram
+                    </a>
+                  </div>
+                </div>
+
+                {/* ── BLOK: Tombol Kirim Uji Coba Notifikasi ── */}
+                <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
+                  <div className="px-4 py-3 border-b border-stone-100 bg-stone-50">
+                    <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Tes Kirim Notifikasi</div>
+                  </div>
+                  <div className="px-4 py-3 space-y-3">
+                    <p className="text-[11px] text-stone-500 leading-relaxed">
+                      Klik tombol di bawah untuk mengirim pesan uji coba ke Grup Telegram tim sekolah. Pastikan bot sudah ada di grup dan menjadi admin.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={teleTesting}
+                      onClick={async () => {
+                        setTeleTesting(true);
+                        setTeleTestMsg(null);
+                        try {
+                          const res = await fetch("/api/telegram-notify", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              action: "test",
+                              customToken: teleBotToken.trim() || undefined,
+                              customChatId: teleChatId.trim() || undefined,
+                            }),
+                          });
+                          const data = await res.json();
+                          if (data.ok) {
+                            setTeleTestMsg({ ok: true, text: data.message || "✅ Pesan uji coba berhasil dikirim ke Grup Telegram!" });
+                            toast("Notifikasi tes berhasil dikirim!", "success");
+                          } else {
+                            if (teleBotToken && teleChatId) {
+                              const directRes = await testTelegramConnection(teleBotToken, teleChatId);
+                              setTeleTestMsg({ ok: directRes.success, text: directRes.message });
+                            } else {
+                              setTeleTestMsg({ ok: false, text: data.message || "Gagal kirim notifikasi. Pastikan bot sudah diundang ke grup dan dijadikan admin." });
+                            }
+                          }
+                        } catch (err: unknown) {
+                          setTeleTestMsg({ ok: false, text: `Kendala jaringan: ${err instanceof Error ? err.message : String(err)}` });
+                        } finally {
+                          setTeleTesting(false);
+                        }
+                      }}
+                      className="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      {teleTesting ? "Mengirim Pesan Uji Coba..." : "📲 Kirim Notifikasi Uji Coba"}
+                    </button>
+
+                    {/* Hasil tes */}
+                    {teleTestMsg && (
+                      <div className={`p-3 rounded-xl border text-[11px] flex items-start gap-2 ${teleTestMsg.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+                        {teleTestMsg.ok ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600 mt-0.5" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600 mt-0.5" />}
+                        <span className="leading-relaxed">{teleTestMsg.text}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* Footer Modal — Sederhana, hanya tombol Tutup */}
+            <div className="px-5 py-3 bg-stone-50 border-t border-stone-100 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setShowKredensialModal(false)}
+                className="px-5 py-2 rounded-xl text-xs font-bold text-stone-600 hover:bg-stone-100 border border-stone-200 transition-colors cursor-pointer"
               >
                 Tutup
               </button>

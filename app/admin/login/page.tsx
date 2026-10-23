@@ -93,12 +93,6 @@ export default function AdminLoginPage() {
       return;
     }
 
-    if (!isSupabaseConfigured()) {
-      setLoginError("Layanan sedang tidak tersedia. Silakan coba beberapa saat lagi.");
-      toast("Layanan sedang tidak tersedia.", "error");
-      return;
-    }
-
     setIsLoading(true);
 
     try {
@@ -139,7 +133,7 @@ export default function AdminLoginPage() {
       <div className="max-w-md w-full">
         <div className="bg-stone-800/90 border border-stone-700/80 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-xs">
           {/* Header */}
-          <div className="text-center mb-7">
+          <div className="text-center mb-6">
             <div className="w-12 h-12 rounded-2xl bg-amber-400 text-stone-950 flex items-center justify-center mx-auto mb-3 shadow-md font-black">
               <ShieldCheck className="w-6 h-6 text-stone-950" />
             </div>
@@ -150,6 +144,37 @@ export default function AdminLoginPage() {
               Pusat kendali dan pengelolaan laporan pengaduan sekolah.
             </p>
           </div>
+
+          {/* Banner jika Supabase belum disetel di .env.local */}
+          {!isSupabaseConfigured() && (
+            <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2.5">
+              <div className="flex items-center gap-2 font-black text-amber-300">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Mode Pengujian Lokal Aktif</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-stone-300">
+                Database Supabase belum dihubungkan. Anda tetap bisa menguji seluruh fitur dashboard pengaduan & notifikasi bot dalam <strong>Mode Demo Lokal</strong>:
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  AuthService.setUser({
+                    id: "demo-admin-id",
+                    nama: "Administrator Sekolah (Demo)",
+                    email: "admin@sekolah.id",
+                    nisn_kelas: "Administrator Sekolah",
+                    role: "admin",
+                    created_at: new Date().toISOString(),
+                  });
+                  toast("Berhasil masuk Mode Demo Lokal!", "success");
+                  router.push("/admin/dashboard");
+                }}
+                className="w-full py-2.5 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+              >
+                🚀 Masuk Cepat Sebagai Admin Demo
+              </button>
+            </div>
+          )}
 
           {/* Form Login Admin */}
           <form onSubmit={handleLogin} className="space-y-4.5" noValidate>

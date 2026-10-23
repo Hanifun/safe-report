@@ -11,6 +11,7 @@ import {
   Lock,
   User as UserIcon,
   ShieldCheck,
+  AlertCircle,
 } from "lucide-react";
 import Footer from "@/components/Footer";
 import { AuthService, StudentService } from "@/lib/data";
@@ -49,11 +50,6 @@ function LoginForm() {
     }
     if (!password) {
       toast("Silakan masukkan kata sandi.", "warning");
-      return;
-    }
-
-    if (!isSupabaseConfigured()) {
-      toast("Layanan sedang tidak tersedia. Silakan coba beberapa saat lagi.", "error");
       return;
     }
 
@@ -104,6 +100,35 @@ function LoginForm() {
           Gunakan NISN dan kata sandi yang telah didaftarkan oleh Admin sekolah.
         </p>
       </div>
+
+      {/* Banner Mode Demo jika Supabase belum disetel */}
+      {!isSupabaseConfigured() && (
+        <div className="mb-4 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-xs space-y-2">
+          <div className="font-bold text-amber-900 flex items-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5 text-amber-600" /> Mode Pengujian Lokal
+          </div>
+          <p className="text-[11px] text-amber-800 leading-relaxed">
+            Database cloud belum dihubungkan. Anda bisa masuk dengan NISN sembarang (sandi: <code>123456</code>) atau klik tombol di bawah:
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              AuthService.setUser({
+                id: "demo-siswa-1",
+                nama: "Ahmad Rizky (Demo)",
+                nisn_kelas: "1234567890 - XI-IPA 1",
+                role: "siswa",
+                created_at: new Date().toISOString(),
+              });
+              toast("Masuk sebagai Siswa Demo!", "success");
+              router.push(redirectTarget);
+            }}
+            className="w-full py-2 rounded-xl bg-amber-400 hover:bg-amber-300 font-bold text-stone-950 text-xs transition-colors cursor-pointer"
+          >
+            🚀 Masuk Cepat Siswa Demo
+          </button>
+        </div>
+      )}
 
       {/* Form Login Siswa dengan Padding Ikon Rapi (Bebas Tabrakan) */}
       <form onSubmit={handleStudentLogin} className="space-y-4.5">

@@ -134,6 +134,10 @@ CREATE INDEX IF NOT EXISTS idx_bukti_laporan ON public.bukti_laporan(laporan_id)
 CREATE INDEX IF NOT EXISTS idx_siswa_nisn ON public.siswa(nisn);
 CREATE INDEX IF NOT EXISTS idx_admin_email ON public.admins(email);
 
+-- 10b. Aktifkan Supabase Realtime untuk tabel laporan (untuk notifikasi real-time admin)
+ALTER TABLE public.laporan REPLICA IDENTITY FULL;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.laporan;
+
 -- 11. Data Awal — Admin Default
 INSERT INTO public.admins (nama, email, password, nip_jabatan)
 VALUES ('Admin Sekolah', 'admin@sekolah.id', 'admin', 'Administrator Sekolah')
