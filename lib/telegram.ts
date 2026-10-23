@@ -150,11 +150,11 @@ export async function sendTelegramNewLaporan(laporan: {
       : `👤 ${laporan.nama_pelapor || "Siswa"}`;
 
     const ringkasanKronologi =
-      laporan.deskripsi.length > 250
-        ? laporan.deskripsi.slice(0, 250) + "..."
+      laporan.deskripsi.length > 80
+        ? laporan.deskripsi.slice(0, 80).trim() + "..."
         : laporan.deskripsi;
 
-    const message = `🚨 <b>LAPORAN PENGADUAN BARU MASUK!</b>
+    const message = `🚨 <b>[LAPORAN BARU DITERIMA]</b>
 ━━━━━━━━━━━━━━━━━━━━
 🆔 <b>Kode Pelacak :</b> <code>${laporan.kode_pelacak}</code>
 🏷️ <b>Kategori     :</b> ${laporan.kategori}
@@ -162,10 +162,11 @@ export async function sendTelegramNewLaporan(laporan: {
 📅 <b>Tgl Kejadian :</b> ${laporan.tanggal_kejadian}
 👤 <b>Pelapor      :</b> ${pelaporLabel}
 
-📝 <b>Kronologi:</b>
+📝 <b>Kronologi Singkat:</b>
 <i>"${ringkasanKronologi}"</i>
 ━━━━━━━━━━━━━━━━━━━━
-⚡ <i>Segera buka Dashboard Admin SafeReport untuk meninjau bukti dan memperbarui status penanganan.</i>`;
+🔗 <b>Detail Lengkap & Berkas Bukti:</b>
+<i>Silakan buka Portal Admin di Web SafeReport untuk membaca detail kronologi lengkap dan berkas bukti.</i>`;
 
     const res = await fetch(`https://api.telegram.org/bot${cfg.botToken}/sendMessage`, {
       method: "POST",

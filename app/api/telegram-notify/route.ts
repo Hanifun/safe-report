@@ -120,8 +120,8 @@ Mulai sekarang, setiap kali ada siswa yang mengirimkan laporan pengaduan, seluru
       : `👤 ${nama_pelapor || "Siswa"}`;
 
     const cleanDeskripsi =
-      deskripsi && deskripsi.length > 300
-        ? deskripsi.slice(0, 300) + "..."
+      deskripsi && deskripsi.length > 80
+        ? deskripsi.slice(0, 80).trim() + "..."
         : deskripsi || "-";
 
     const text = `🚨 <b>[LAPORAN BARU DITERIMA]</b>
@@ -135,8 +135,8 @@ Mulai sekarang, setiap kali ada siswa yang mengirimkan laporan pengaduan, seluru
 📝 <b>Kronologi Singkat:</b>
 <i>"${cleanDeskripsi}"</i>
 ━━━━━━━━━━━━━━━━━━━━
-👥 <b>Kepada Tim Penanganan Sekolah / BK:</b>
-<i>Mohon segera buka Portal Admin SafeReport untuk meninjau berkas bukti dan memperbarui status penanganan.</i>`;
+🔗 <b>Detail Lengkap & Berkas Bukti:</b>
+<i>Silakan buka Portal Admin di Web SafeReport untuk membaca detail kronologi lengkap dan berkas bukti.</i>`;
 
     const data = await sendMsg(chatId, text);
     return NextResponse.json({ ok: data.ok, data });
