@@ -191,22 +191,26 @@ export default function AdminDashboardPage() {
     e.preventDefault();
     if (!newSiswaNama.trim() || !newSiswaNisn.trim() || !newSiswaKelas.trim()) return;
 
-    await StudentService.create({
-      nama: newSiswaNama,
-      nisn: newSiswaNisn,
-      kelas: newSiswaKelas,
-      password: newSiswaPassword || "123456",
-    });
+    try {
+      await StudentService.create({
+        nama: newSiswaNama,
+        nisn: newSiswaNisn,
+        kelas: newSiswaKelas,
+        password: newSiswaPassword || "123456",
+      });
 
-    setSiswaMsg(`Siswa "${newSiswaNama}" (NISN: ${newSiswaNisn}) berhasil didaftarkan!`);
-    toast(`Siswa "${newSiswaNama}" berhasil didaftarkan!`, "success");
-    setNewSiswaNama("");
-    setNewSiswaNisn("");
-    setNewSiswaKelas("");
-    setNewSiswaPassword("123456");
-    loadData();
+      setSiswaMsg(`Siswa "${newSiswaNama}" berhasil didaftarkan!`);
+      toast(`Siswa "${newSiswaNama}" berhasil didaftarkan!`, "success");
+      setNewSiswaNama("");
+      setNewSiswaNisn("");
+      setNewSiswaKelas("");
+      setNewSiswaPassword("123456");
+      loadData();
 
-    setTimeout(() => setSiswaMsg(null), 4000);
+      setTimeout(() => setSiswaMsg(null), 4000);
+    } catch {
+      toast("Gagal mendaftarkan siswa. Terjadi kesalahan.", "error");
+    }
   };
 
   // Hapus semua data pengaduan dengan dialog modal pop-up standar web

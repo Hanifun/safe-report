@@ -96,7 +96,7 @@ export default function FormLaporan({ user, initialMode, onBackToMenu, onSuccess
     setError(null);
 
     if (!form.lokasi?.trim() || form.lokasi.trim().length < 3) {
-      toast("Mohon cantumkan lokasi kejadian secara jelas (minimal 3 karakter).", "warning");
+      toast("Mohon isi lokasi kejadian dengan jelas.", "warning");
       return;
     }
     if (!form.tanggal_kejadian) {
@@ -104,7 +104,7 @@ export default function FormLaporan({ user, initialMode, onBackToMenu, onSuccess
       return;
     }
     if (!form.deskripsi?.trim() || form.deskripsi.trim().length < 15) {
-      toast("Mohon ceritakan kronologi kejadian secara ringkas dan jelas (minimal 15 karakter).", "warning");
+      toast("Mohon ceritakan kronologi kejadian dengan jelas (minimal 15 karakter).", "warning");
       return;
     }
 
@@ -121,23 +121,10 @@ export default function FormLaporan({ user, initialMode, onBackToMenu, onSuccess
         user
       );
       onSuccess(laporan.kode_pelacak);
-      toast("Laporan pengaduan berhasil dikirim secara aman!", "success");
+      toast("Laporan berhasil dikirim!", "success");
     } catch (err: unknown) {
       console.error("Submit laporan error:", err);
-      let msg = "Gagal mengirim laporan. Silakan coba sesaat lagi.";
-      if (err instanceof Error) {
-        if (
-          err.message.includes("constraint") ||
-          err.message.includes("violates") ||
-          err.message.includes("relation") ||
-          err.message.includes("PGRST") ||
-          err.message.includes("syntax")
-        ) {
-          msg = "Terjadi kendala saat menyimpan laporan. Silakan periksa kembali data atau coba sesaat lagi.";
-        } else {
-          msg = err.message;
-        }
-      }
+      const msg = "Terjadi kesalahan saat mengirim laporan. Silakan coba lagi.";
       toast(msg, "error");
       setError(msg);
     } finally {

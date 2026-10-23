@@ -224,7 +224,7 @@ export const LaporanService = {
           .upload(safeName, file, { contentType: file.type });
 
         if (uploadError) {
-          throw new Error(`Gagal mengunggah berkas: ${uploadError.message}`);
+          throw new Error("Gagal mengunggah berkas bukti. Silakan coba lagi.");
         }
 
         const { data: publicUrl } = supabase.storage
@@ -245,36 +245,81 @@ export const LaporanService = {
       data.mode_identitas === "siswa" && Boolean(user);
     const isAnonim = !isSiswaIdentity;
     const kode = generateKodePelacak("SF");
-    const now = new Date().toISOString();
 
-    // 5. Insert Laporan ke Database
-    const { data: laporanRow, error: laporanError } = await supabase
+    // Validasi pelapor_id agar aman dari error foreign key constraint
+    let validPelaporId: string | null = null;
+    if (isSiswaIdentity && user && user.role === "siswa" && user.id) {
+      try {
+        const { data: siswaRow } = await supabase
+          .from("siswa")
+          .select("id")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (siswaRow) {
+          validPelaporId = siswaRow.id;
+        } else {
+          const nisnPart = user.nisn_kelas?.split(/[\s-]+/)?.[0]?.trim();
+          if (nisnPart) {
+            const { data: siswaByNisn } = await supabase
+              .from("siswa")
+              .select("id")
+              .eq("nisn", nisnPart)
+              .maybeSingle();
+            if (siswaByNisn) {
+              validPelaporId = siswaByNisn.id;
+              AuthService.setUser({ ...user, id: siswaByNisn.id });
+            }
+          }
+        }
+      } catch {
+        validPelaporId = null;
+      }
+    }
+
+    const payload = {
+      kode_pelacak: kode,
+      is_anonim: isAnonim,
+      pelapor_id: validPelaporId,
+      nama_pelapor:
+        isSiswaIdentity && user
+          ? `${user.nama} (${user.nisn_kelas ?? "Siswa"})`
+          : null,
+      kontak_opsional: cleanKontak || null,
+      peran_pelapor: data.peran_pelapor,
+      kategori: data.kategori,
+      nama_pelaku: cleanNamaPelaku || null,
+      lokasi: cleanLokasi,
+      tanggal_kejadian: data.tanggal_kejadian,
+      deskripsi: cleanDeskripsi,
+      status: "baru",
+    };
+
+    // 5. Insert Laporan ke Database dengan proteksi fallback
+    let { data: laporanRow, error: laporanError } = await supabase
       .from("laporan")
-      .insert({
-        kode_pelacak: kode,
-        is_anonim: isAnonim,
-        pelapor_id:
-          isSiswaIdentity && user ? user.id : null,
-        nama_pelapor:
-          isSiswaIdentity && user
-            ? `${user.nama} (${user.nisn_kelas ?? "Siswa"})`
-            : null,
-        kontak_opsional: cleanKontak || null,
-        peran_pelapor: data.peran_pelapor,
-        kategori: data.kategori,
-        nama_pelaku: cleanNamaPelaku || null,
-        lokasi: cleanLokasi,
-        tanggal_kejadian: data.tanggal_kejadian,
-        deskripsi: cleanDeskripsi,
-        status: "baru",
-      })
+      .insert(payload)
       .select()
       .single();
 
+    // Jika terjadi error foreign key, simpan dengan pelapor_id null
+    if (
+      laporanError &&
+      (laporanError.message?.includes("foreign key") ||
+        laporanError.code === "23503" ||
+        laporanError.details?.includes("pelapor_id"))
+    ) {
+      const retryResult = await supabase
+        .from("laporan")
+        .insert({ ...payload, pelapor_id: null })
+        .select()
+        .single();
+      laporanRow = retryResult.data;
+      laporanError = retryResult.error;
+    }
+
     if (laporanError || !laporanRow) {
-      throw new Error(
-        `Gagal menyimpan laporan: ${laporanError?.message ?? "unknown"}`
-      );
+      throw new Error("Gagal menyimpan laporan. Terjadi kesalahan.");
     }
 
     // 6. Insert Bukti Files
@@ -418,17 +463,17 @@ export const AdminService = {
       console.error("Supabase Admin login error:", error);
       return {
         data: null,
-        error: "Email atau kata sandi tidak cocok. Silakan periksa kembali.",
+        error: "Email atau kata sandi salah. Silakan coba lagi.",
       };
     }
     if (!data) {
       return {
         data: null,
-        error: "Email atau kata sandi tidak cocok. Silakan periksa kembali.",
+        error: "Email atau kata sandi salah. Silakan coba lagi.",
       };
     }
     if (password && data.password && data.password !== password) {
-      return { data: null, error: "Email atau kata sandi tidak cocok. Silakan periksa kembali." };
+      return { data: null, error: "Email atau kata sandi salah. Silakan coba lagi." };
     }
     return { data, error: undefined };
   },
@@ -489,17 +534,17 @@ export const StudentService = {
       console.error("Supabase Siswa login error:", error);
       return {
         data: null,
-        error: "NISN atau kata sandi tidak cocok. Silakan periksa kembali.",
+        error: "NISN atau kata sandi salah. Silakan coba lagi.",
       };
     }
     if (!data) {
       return {
         data: null,
-        error: "NISN atau kata sandi tidak cocok. Silakan periksa kembali.",
+        error: "NISN atau kata sandi salah. Silakan coba lagi.",
       };
     }
     if (password && data.password && data.password !== password) {
-      return { data: null, error: "NISN atau kata sandi tidak cocok. Silakan periksa kembali." };
+      return { data: null, error: "NISN atau kata sandi salah. Silakan coba lagi." };
     }
     return { data, error: undefined };
   },

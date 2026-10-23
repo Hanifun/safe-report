@@ -44,16 +44,16 @@ function LoginForm() {
 
     // Validasi Pop-up
     if (!nisn.trim()) {
-      toast("Silakan masukkan Nomor Induk Siswa Nasional (NISN) kamu.", "warning");
+      toast("Silakan masukkan NISN.", "warning");
       return;
     }
     if (!password) {
-      toast("Silakan masukkan kata sandi / PIN kamu.", "warning");
+      toast("Silakan masukkan kata sandi.", "warning");
       return;
     }
 
     if (!isSupabaseConfigured()) {
-      toast("Layanan login sedang tidak tersedia. Silakan hubungi admin sekolah.", "error");
+      toast("Layanan sedang tidak tersedia. Silakan coba beberapa saat lagi.", "error");
       return;
     }
 
@@ -62,7 +62,7 @@ function LoginForm() {
     try {
       const { data: student, error: loginErr } = await StudentService.login(nisn, password);
       if (loginErr || !student) {
-        toast(loginErr || "NISN atau kata sandi tidak cocok. Akun siswa didaftarkan oleh Admin di sekolah.", "error");
+        toast(loginErr || "Login gagal. NISN atau kata sandi salah.", "error");
         setIsLoading(false);
         return;
       }
@@ -76,11 +76,10 @@ function LoginForm() {
         created_at: student.created_at,
       });
 
-      toast(`Selamat datang kembali, ${student.nama.split(" ")[0]}!`, "success");
+      toast("Login berhasil!", "success");
       router.push(redirectTarget);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Terjadi kendala saat memproses login. Silakan coba kembali.";
-      toast(msg, "error");
+    } catch {
+      toast("Terjadi kesalahan. Silakan coba lagi.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -167,7 +166,7 @@ function LoginForm() {
           disabled={isLoading}
           className="btn-primary w-full py-3 text-sm font-bold shadow-xs cursor-pointer disabled:opacity-60 mt-2"
         >
-          {isLoading ? "Memeriksa Akun..." : "Masuk ke Akun Saya"} <ArrowRight className="w-4 h-4" />
+          {isLoading ? "Memproses..." : "Masuk ke Akun Saya"} <ArrowRight className="w-4 h-4" />
         </button>
       </form>
 

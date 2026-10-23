@@ -94,8 +94,8 @@ export default function AdminLoginPage() {
     }
 
     if (!isSupabaseConfigured()) {
-      setLoginError("Layanan autentikasi sedang tidak tersedia. Silakan coba beberapa saat lagi.");
-      toast("Layanan autentikasi sedang tidak tersedia.", "error");
+      setLoginError("Layanan sedang tidak tersedia. Silakan coba beberapa saat lagi.");
+      toast("Layanan sedang tidak tersedia.", "error");
       return;
     }
 
@@ -107,14 +107,14 @@ export default function AdminLoginPage() {
       const { data: admin, error: loginErr } = await AdminService.login(cleanEmail, cleanPassword);
       if (loginErr || !admin) {
         RateLimiter.record("admin_login_attempt");
-        const msg = loginErr || "Email atau kata sandi tidak cocok. Silakan periksa kembali.";
+        const msg = loginErr || "Login gagal. Email atau kata sandi salah.";
         setLoginError(msg);
         toast(msg, "error");
         setIsLoading(false);
         return;
       }
 
-      // Set sesi profil admin terenkripsi
+      // Set sesi profil admin
       AuthService.setUser({
         id: admin.id,
         nama: admin.nama,
@@ -124,11 +124,12 @@ export default function AdminLoginPage() {
         created_at: admin.created_at,
       });
 
-      toast("Login berhasil! Selamat datang di Portal Admin.", "success");
+      toast("Login berhasil!", "success");
       router.push("/admin/dashboard");
     } catch {
-      const msg = "Terjadi kendala saat memproses login. Silakan coba kembali.";
+      const msg = "Terjadi kesalahan. Silakan coba lagi.";
       setLoginError(msg);
+      toast(msg, "error");
       setIsLoading(false);
     }
   };
@@ -238,7 +239,7 @@ export default function AdminLoginPage() {
             >
               {isLoading ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Memverifikasi Kredensial...
+                  <Loader2 className="w-4 h-4 animate-spin" /> Memproses...
                 </>
               ) : (
                 <>

@@ -43,7 +43,7 @@ export default function StudentDashboardPage() {
     if (isOk) {
       const current = AuthService.getUser();
       if (current) {
-        LaporanService.getByPelaporId(current.id, current.nama).then((list) => {
+        LaporanService.getByPelaporId(current.id).then((list) => {
           setLaporanList(list);
         });
       }
@@ -171,12 +171,12 @@ export default function StudentDashboardPage() {
                       </span>
                       <span
                         className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${item.status === "baru"
-                            ? "badge-baru"
-                            : item.status === "diverifikasi"
-                              ? "badge-verifikasi"
-                              : item.status === "diproses"
-                                ? "badge-proses"
-                                : "badge-selesai"
+                          ? "badge-baru"
+                          : item.status === "diverifikasi"
+                            ? "badge-verifikasi"
+                            : item.status === "diproses"
+                              ? "badge-proses"
+                              : "badge-selesai"
                           }`}
                       >
                         {item.status}

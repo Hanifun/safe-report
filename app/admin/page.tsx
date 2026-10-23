@@ -18,7 +18,7 @@ export default function AdminIndexPage() {
 
   return (
     <div className="min-h-screen bg-stone-900 flex items-center justify-center text-stone-400 text-sm">
-      Memeriksa sesi admin...
+      Memuat...
     </div>
   );
 }

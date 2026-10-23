@@ -51,23 +51,23 @@ function StatusContent() {
   const handleSearch = async (overrideKode?: string) => {
     const target = (overrideKode || inputKode).trim().toUpperCase();
     if (!target) {
-      toast("Masukkan kode tiket pelacak terlebih dahulu (contoh: SF-ABC1234).", "warning");
+      toast("Silakan masukkan kode tiket terlebih dahulu.", "warning");
       return;
     }
     const res = await LaporanService.getByKode(target);
     setLaporan(res);
     setSearched(true);
     if (!res) {
-      toast("Kode tiket tidak ditemukan. Pastikan kode tiket ditulis dengan benar.", "error");
+      toast("Laporan tidak ditemukan. Silakan periksa kembali kode tiket.", "error");
     } else {
-      toast("Data laporan pengaduan berhasil ditemukan.", "success");
+      toast("Laporan berhasil ditemukan.", "success");
     }
   };
 
   if (isCheckingAuth) {
     return (
       <div className="max-w-md mx-auto w-full px-4 py-16 text-center text-stone-400 text-xs">
-        Memeriksa sesi...
+        Memuat...
       </div>
     );
   }
