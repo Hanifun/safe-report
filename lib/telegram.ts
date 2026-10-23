@@ -78,21 +78,39 @@ Mulai sekarang, setiap kali ada siswa yang mengirim laporan pengaduan, Anda akan
 
 🕒 <i>Waktu Uji Coba: ${new Date().toLocaleString("id-ID")}</i>`;
 
-    const res = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
+    let targetChatId = cleanChatId;
+    let res = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chat_id: cleanChatId,
+        chat_id: targetChatId,
         text,
         parse_mode: "HTML",
       }),
     });
 
-    const data = await res.json();
+    let data = await res.json();
+    if (!data.ok && data.parameters?.migrate_to_chat_id) {
+      targetChatId = String(data.parameters.migrate_to_chat_id);
+      saveTelegramConfig({ botToken: cleanToken, chatId: targetChatId, isEnabled: true });
+      res = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: targetChatId,
+          text,
+          parse_mode: "HTML",
+        }),
+      });
+      data = await res.json();
+    }
+
     if (data.ok) {
       return {
         success: true,
-        message: "Pesan uji coba berhasil dikirim ke Telegram Anda!",
+        message: targetChatId !== cleanChatId
+          ? `Pesan uji coba berhasil masuk ke Supergroup! (ID Baru: ${targetChatId})`
+          : "Pesan uji coba berhasil dikirim ke Telegram Anda!",
       };
     } else {
       return {
@@ -149,7 +167,7 @@ export async function sendTelegramNewLaporan(laporan: {
 ━━━━━━━━━━━━━━━━━━━━
 ⚡ <i>Segera buka Dashboard Admin SafeReport untuk meninjau bukti dan memperbarui status penanganan.</i>`;
 
-    await fetch(`https://api.telegram.org/bot${cfg.botToken}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${cfg.botToken}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -158,6 +176,21 @@ export async function sendTelegramNewLaporan(laporan: {
         parse_mode: "HTML",
       }),
     });
+
+    const data = await res.json();
+    if (!data.ok && data.parameters?.migrate_to_chat_id) {
+      const newChatId = String(data.parameters.migrate_to_chat_id);
+      saveTelegramConfig({ botToken: cfg.botToken, chatId: newChatId, isEnabled: true });
+      await fetch(`https://api.telegram.org/bot${cfg.botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: newChatId,
+          text: message,
+          parse_mode: "HTML",
+        }),
+      });
+    }
   } catch (err) {
     // Tidak boleh memblokir pengiriman laporan siswa jika Telegram gagal
     console.warn("Gagal mengirim notifikasi Telegram:", err);

@@ -46,6 +46,35 @@ export async function POST(req: Request) {
       });
     }
 
+    async function sendMsg(toChatId: string, textContent: string) {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: toChatId,
+          text: textContent,
+          parse_mode: "HTML",
+        }),
+      });
+      const data = await res.json();
+      // Auto-migrate jika grup diubah menjadi supergroup
+      if (!data.ok && data.parameters?.migrate_to_chat_id) {
+        const newChatId = String(data.parameters.migrate_to_chat_id);
+        const retryRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: newChatId,
+            text: textContent,
+            parse_mode: "HTML",
+          }),
+        });
+        const retryData = await retryRes.json();
+        return { ...retryData, migratedChatId: newChatId };
+      }
+      return data;
+    }
+
     // Aksi 1: Uji Coba Notifikasi Grup
     if (body.action === "test") {
       const testText = `🔔 <b>UJI COBA NOTIFIKASI GRUP TIM SAFEREPORT</b>
@@ -53,25 +82,17 @@ export async function POST(req: Request) {
 ✅ <b>Koneksi Grup Tim Berhasil!</b>
 Sistem SafeReport telah sukses terhubung ke Grup Telegram ini.
 
-Mulai sekarang, setiap kali ada siswa atau masyarakat yang mengirimkan laporan pengaduan, seluruh anggota tim di grup ini akan menerima ringkasan laporan secara instan dan serentak.
+Mulai sekarang, setiap kali ada siswa yang mengirimkan laporan pengaduan, seluruh anggota tim di grup ini akan menerima ringkasan laporan secara instan dan serentak.
 
 🕒 <i>Waktu Uji Coba: ${new Date().toLocaleString("id-ID")}</i>`;
 
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: testText,
-          parse_mode: "HTML",
-        }),
-      });
-
-      const data = await res.json();
+      const data = await sendMsg(chatId, testText);
       if (data.ok) {
         return NextResponse.json({
           ok: true,
-          message: "Pesan uji coba berhasil masuk ke Grup Telegram Tim!",
+          message: data.migratedChatId
+            ? `Pesan uji coba berhasil masuk ke Supergroup Telegram! (ID Supergroup Baru: ${data.migratedChatId})`
+            : "Pesan uji coba berhasil masuk ke Grup Telegram Tim!",
         });
       } else {
         return NextResponse.json({
@@ -117,17 +138,7 @@ Mulai sekarang, setiap kali ada siswa atau masyarakat yang mengirimkan laporan p
 👥 <b>Kepada Tim Penanganan Sekolah / BK:</b>
 <i>Mohon segera buka Portal Admin SafeReport untuk meninjau berkas bukti dan memperbarui status penanganan.</i>`;
 
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: "HTML",
-      }),
-    });
-
-    const data = await res.json();
+    const data = await sendMsg(chatId, text);
     return NextResponse.json({ ok: data.ok, data });
   } catch (err: unknown) {
     console.error("Gagal mengirim telegram notify dari API route:", err);
